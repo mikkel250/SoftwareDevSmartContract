@@ -1,40 +1,57 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.20;
-
 /**
  * @title WorkContract
  * @notice A contract for managing work agreements, approvals, deadlines, and payments between a client and a worker.
  */
+pragma solidity ^0.8.0;
+
+
 contract WorkContract {
+    // NOTE: This contract has more than 15 state variables, which may trigger a linter warning. 
+    // This is not a Solidity error, but a style rule. Adjust your linter config if needed.
+
     /// @notice Address of the client (deployer)
     address payable public client;
+
     /// @notice Address of the worker
     address payable public worker;
+
     /// @notice Hourly rate for the work
     uint public hourlyRate;
+
     /// @notice Number of hours required for the work
     uint public hoursRequired;
+
     /// @notice Minimum payment guaranteed to the worker
     uint public guaranteedAmount;
+
     /// @notice Timestamp for ideal completion time
     uint public idealDeadline;
+
     /// @notice Timestamp for maximum allowed completion time
     uint public maxDeadline;
+
     /// @notice Whether the client has approved completion
     bool public clientApproved;
+
     /// @notice Whether the worker has approved completion
     bool public workerApproved;
+
     /// @notice Whether payment has been released
     bool public paymentReleased;
 
     /// @notice Emitted when payment is released to a party
     event PaymentReleased(address indexed to, uint amount);
+
     /// @notice Emitted when the guaranteed payment is claimed by the worker
     event GuaranteedClaimed(address indexed worker, uint amount);
+
     /// @notice Emitted when a refund is issued to the client
     event RefundIssued(address indexed client, uint amount);
+
     /// @notice Emitted when an approval is made
     event Approval(address indexed approver, bool isClient);
+
     /// @notice Emitted when a timeout claim is made
     event TimeoutClaim(address indexed claimer, uint amount);
 
@@ -60,7 +77,10 @@ contract WorkContract {
         require(_hoursRequired > 0, "Hours required must be positive");
         require(_guaranteedAmount > 0, "Guaranteed amount must be positive");
         require(_idealDuration > 0, "Ideal duration must be positive");
-        require(_maxDuration >= _idealDuration, "Max duration must be >= ideal duration");
+        require(
+            _maxDuration >= _idealDuration,
+            "Max duration must be >= ideal duration"
+        );
 
         client = payable(msg.sender);
         worker = _worker;
@@ -72,7 +92,10 @@ contract WorkContract {
 
         uint requiredAmount = hourlyRate * hoursRequired;
         require(msg.value >= requiredAmount, "Insufficient contract funding");
-        require(guaranteedAmount <= msg.value, "Guaranteed amount exceeds sent value");
+        require(
+            guaranteedAmount <= msg.value,
+            "Guaranteed amount exceeds sent value"
+        );
 
         clientApproved = false;
         workerApproved = false;
@@ -84,7 +107,10 @@ contract WorkContract {
      * @dev Emits Approval and PaymentReleased events.
      */
     function approveCompletion() public {
-        require(msg.sender == client || msg.sender == worker, "Only client or worker can approve");
+        require(
+            msg.sender == client || msg.sender == worker,
+            "Only client or worker can approve"
+        );
         if (msg.sender == client) {
             require(!clientApproved, "Client already approved");
             clientApproved = true;
@@ -108,9 +134,15 @@ contract WorkContract {
      * @dev Emits GuaranteedClaimed and RefundIssued events.
      */
     function claimGuaranteed() public {
-        require(msg.sender == worker, "Only worker can claim guaranteed payment");
+        require(
+            msg.sender == worker,
+            "Only worker can claim guaranteed payment"
+        );
         require(!paymentReleased, "Payment already released");
-        require(address(this).balance >= guaranteedAmount, "Insufficient contract balance for guaranteed payment");
+        require(
+            address(this).balance >= guaranteedAmount,
+            "Insufficient contract balance for guaranteed payment"
+        );
 
         paymentReleased = true;
 
@@ -193,4 +225,4 @@ contract WorkContract {
     function getDeadlines() public view returns (uint, uint) {
         return (idealDeadline, maxDeadline);
     }
-} 
+}
