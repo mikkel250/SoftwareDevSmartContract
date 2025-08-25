@@ -247,9 +247,12 @@
             
             // Show loading state
             const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
-            const originalText = connectBtn.textContent;
-            connectBtn.textContent = 'Connecting...';
-            connectBtn.disabled = true;
+            let originalText = 'Connect Wallet';
+            if (connectBtn) {
+                originalText = connectBtn.textContent;
+                connectBtn.textContent = 'Connecting...';
+                connectBtn.disabled = true;
+            }
 
             try {
                 const walletStatus = checkWalletStatus();
@@ -319,7 +322,9 @@
                     `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
 
                 // Update button text
-                connectBtn.textContent = 'Wallet Connected';
+                if (connectBtn) {
+                    connectBtn.textContent = 'Wallet Connected';
+                }
                 
                 console.log('=== Wallet Connection Successful ===');
 
@@ -338,8 +343,10 @@
                 showResult('walletStatus', errorMessage, 'error');
             } finally {
                 // Reset button state
-                connectBtn.textContent = originalText;
-                connectBtn.disabled = false;
+                if (connectBtn) {
+                    connectBtn.textContent = originalText;
+                    connectBtn.disabled = false;
+                }
             }
         }
 
