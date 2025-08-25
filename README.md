@@ -14,6 +14,63 @@ npx hardhat ignition deploy ./ignition/modules/Lock.ts
 
 ---
 
+## Enhanced Features for Crypto-Forward Experience
+
+This project now includes comprehensive blockchain interaction capabilities:
+
+### ENS (Ethereum Name Service) Integration
+- **ENS Resolution**: Resolve human-readable names to Ethereum addresses
+- **Reverse Lookup**: Convert addresses back to ENS names
+- **Contract Deployment with ENS**: Use ENS names instead of hardcoded addresses
+
+### Onchain Activity Monitoring
+- **Transaction History**: Monitor recent blocks and transactions
+- **Contract State Tracking**: Real-time monitoring of contract balances and status
+- **Event Listening**: Listen for contract events and state changes
+- **Gas Estimation**: Optimize transaction costs
+
+### dApp Frontend Interface
+- **Web3 Wallet Integration**: Connect MetaMask and other Web3 wallets
+- **Interactive Contract Management**: Deploy and interact with contracts through UI
+- **Real-time Blockchain Data**: Display network information and account balances
+- **User-friendly ENS Resolution**: Resolve ENS names directly in the browser
+
+### Comprehensive Testing
+- **Full Contract Test Suite**: Complete coverage of all contract functions
+- **Multi-signature Testing**: Test approval workflows and dispute resolution
+- **Timeout Handling**: Test deadline-based claim mechanisms
+- **Security Testing**: Access control and authorization tests
+
+### New Scripts and Tools
+- `scripts/interact-with-ens.ts` - ENS resolution and integration examples
+- `scripts/onchain-activity.ts` - Comprehensive blockchain interaction demo
+- `test/WorkContract.test.ts` - Complete test suite for the smart contract
+- `frontend/index.html` - Interactive dApp interface
+
+# Run ENS integration demo
+`npm run ens-demo`
+
+# Run comprehensive onchain activity demo  
+`npm run onchain-demo`
+
+# Run full test suite
+`npm run test:contract`
+
+# Start local web server and open dApp
+`npm run start-frontend`
+
+# Or manually start server and open browser
+`python3 -m http.server 8080 --directory frontend`
+`open http://localhost:8080`
+
+# Deploy to Netlify
+The frontend is ready for deployment to Netlify and includes a live demo contract on Sepolia testnet. Simply connect your repository and Netlify will automatically deploy from the `frontend` directory.
+
+**Live Demo Contract**: `0xAE39f19fd7377ec2389E459060955E86515F9d19` (Sepolia)
+
+**Note**: The dApp must be served via HTTP/HTTPS (not file://) for MetaMask to recognize it as a legitimate Web3 application.
+---
+
 ## WorkContract: Deployment & Usage Guide
 
 ### 1. Contract Summary

@@ -3,7 +3,16 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx hardhat test",
+    "test:contract": "npx hardhat test test/WorkContract.test.ts",
+    "compile": "npx hardhat compile",
+    "deploy": "npx hardhat run scripts/deploy.ts",
+    "ens-demo": "npx hardhat run scripts/interact-with-ens.ts",
+    "onchain-demo": "npx hardhat run scripts/onchain-activity.ts",
+    "start-frontend": "python3 -m http.server 8080 --directory frontend & sleep 2 && open http://localhost:8080",
+    "stop-frontend": "pkill -f 'python3 -m http.server 8080'",
+    "node": "npx hardhat node",
+    "clean": "npx hardhat clean"
   },
   "repository": {
     "type": "git",

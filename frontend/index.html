@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WorkContract dApp</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script>
+        // Fallback loading for ethers.js
+        if (typeof ethers === 'undefined') {
+            console.warn('Primary ethers.js CDN failed, trying fallback CDN...');
+            const fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js';
+            fallbackScript.onload = () => console.log('Fallback CDN ethers.js loaded successfully');
+            fallbackScript.onerror = () => {
+                console.warn('Fallback CDN failed, trying local file...');
+                const localScript = document.createElement('script');
+                localScript.src = './ethers.min.js';
+                localScript.onload = () => console.log('Local ethers.js loaded successfully');
+                localScript.onerror = () => console.error('All ethers.js loading methods failed');
+                document.head.appendChild(localScript);
+            };
+            document.head.appendChild(fallbackScript);
+        } else {
+            console.log('Primary ethers.js loaded successfully');
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            overflow-x: hidden;
+            word-wrap: break-word;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow-wrap: break-word;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+        .button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover {
+            background: #45a049;
+        }
+        .button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .status code {
+            background: #f1f1f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+            overflow-wrap: break-word;
+        }
+        .input {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            word-wrap: break-word;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            max-width: 100%;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .address {
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 5px;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            border-radius: 3px;
+        }
+        .hash {
+            font-family: monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+            overflow-wrap: break-word;
+            line-height: 1.4;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .container {
+                padding: 20px;
+            }
+            .status {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 WorkContract dApp</h1>
+        <p>A decentralized application for managing work agreements on Ethereum</p>
+
+        <!-- Wallet Connection -->
+        <div class="section">
+            <h2>🔐 Wallet Connection</h2>
+            <button class="button" onclick="connectWallet()">Connect Wallet</button>
+            <div id="walletStatus" class="status info" style="display: none;">
+                Connected: <span id="walletAddress" class="address"></span>
+            </div>
+        </div>
+
+        <!-- ENS Resolution -->
+        <div class="section">
+            <h2>📝 ENS Resolution</h2>
+            <input type="text" id="ensInput" class="input" placeholder="Enter ENS name (e.g., vitalik.eth)">
+            <button class="button" onclick="resolveENS()">Resolve ENS</button>
+            <div id="ensResult" class="status" style="display: none;"></div>
+        </div>
+
+        <!-- Contract Interaction -->
+        <div class="section">
+            <h2>📋 Contract Management</h2>
+                            <input type="text" id="contractAddress" class="input" placeholder="Contract Address" value="0xAE39f19fd7377ec2389E459060955E86515F9d19">
+            <button class="button" onclick="loadContract()">Load Contract</button>
+            <button class="button" onclick="getContractInfo()">Get Contract Info</button>
+            <div id="contractInfo" class="status" style="display: none;"></div>
+        </div>
+
+        <!-- Contract Actions -->
+        <div class="section">
+            <h2>⚡ Contract Actions</h2>
+            <button class="button" onclick="approveCompletion()">Approve Completion</button>
+            <button class="button" onclick="claimGuaranteed()">Claim Guaranteed Amount</button>
+            <button class="button" onclick="getBalance()">Get Contract Balance</button>
+            <div id="actionResult" class="status" style="display: none;"></div>
+        </div>
+
+        <!-- Blockchain Info -->
+        <div class="section">
+            <h2>🔍 Blockchain Information</h2>
+            <button class="button" onclick="getBlockchainInfo()">Get Latest Info</button>
+            <div id="blockchainInfo" class="status" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        let provider, signer, contract;
+        const CONTRACT_ABI = [
+            "function client() view returns (address)",
+            "function worker() view returns (address)",
+            "function hourlyRate() view returns (uint256)",
+            "function hoursRequired() view returns (uint256)",
+            "function guaranteedAmount() view returns (uint256)",
+            "function getContractBalance() view returns (uint256)",
+            "function getApprovalStatus() view returns (bool, bool)",
+            "function isPaymentReleased() view returns (bool)",
+            "function getDeadlines() view returns (uint256, uint256)",
+            "function approveCompletion()",
+            "function claimGuaranteed()",
+            "function workerClaimAfterDeadline()",
+            "function clientClaimAfterDeadline()"
+        ];
+
+        function checkEthersLoaded() {
+            console.log('=== Ethers.js Loading Check ===');
+            console.log('typeof ethers:', typeof ethers);
+            if (typeof ethers !== 'undefined') {
+                console.log('ethers version:', ethers.version);
+                console.log('ethers providers:', Object.keys(ethers.providers || {}));
+                return true;
+            } else {
+                console.error('ethers is not defined!');
+                return false;
+            }
+        }
+
+        function checkWalletStatus() {
+            console.log('=== Wallet Detection Debug ===');
+            console.log('window.ethereum exists:', typeof window.ethereum !== 'undefined');
+            console.log('User agent:', navigator.userAgent);
+            
+            const isBrave = navigator.brave && navigator.brave.isBrave;
+            console.log('Brave browser detected:', isBrave);
+            
+            if (typeof window.ethereum !== 'undefined') {
+                console.log('MetaMask detected:', window.ethereum.isMetaMask);
+                console.log('Provider details:', window.ethereum);
+                console.log('Selected address:', window.ethereum.selectedAddress);
+                console.log('Provider list:', window.ethereum.providers ? window.ethereum.providers.length : 'No providers array');
+                
+                // Check for multiple providers (common in Brave)
+                if (window.ethereum.providers && window.ethereum.providers.length > 0) {
+                    console.log('Multiple providers detected:');
+                    window.ethereum.providers.forEach((provider, index) => {
+                        console.log(`Provider ${index}:`, {
+                            isMetaMask: provider.isMetaMask,
+                            isBraveWallet: provider.isBraveWallet,
+                            selectedAddress: provider.selectedAddress
+                        });
+                    });
+                }
+                
+                return { 
+                    available: true, 
+                    provider: window.ethereum,
+                    isMetaMask: window.ethereum.isMetaMask,
+                    isBrave: isBrave,
+                    hasMultipleProviders: window.ethereum.providers && window.ethereum.providers.length > 0,
+                    connected: window.ethereum.selectedAddress !== null
+                };
+            }
+            
+            console.log('No Ethereum provider found');
+            return { available: false, reason: 'No wallet provider found', isBrave: isBrave };
+        }
+
+        async function connectWallet() {
+            console.log('=== Starting Wallet Connection ===');
+            
+            // Show loading state
+            const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
+            const originalText = connectBtn.textContent;
+            connectBtn.textContent = 'Connecting...';
+            connectBtn.disabled = true;
+
+            try {
+                const walletStatus = checkWalletStatus();
+                
+                if (!walletStatus.available) {
+                    let message = 'Please install MetaMask or another Web3 wallet to continue. ' +
+                        '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Download MetaMask</a>';
+                    
+                    if (walletStatus.isBrave) {
+                        message = '🦁 <strong>Brave Browser Detected!</strong><br><br>' +
+                            'Brave has a built-in wallet that may conflict with MetaMask. To use MetaMask:<br><br>' +
+                            '1. Go to <code>brave://settings/web3</code><br>' +
+                            '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong> or <strong>"None"</strong><br>' +
+                            '3. Restart Brave browser<br>' +
+                            '4. Try connecting again<br><br>' +
+                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask if not installed</a>';
+                    }
+                    
+                    showResult('walletStatus', message, 'error');
+                    return;
+                }
+
+                // Check for Brave wallet conflicts
+                if (walletStatus.isBrave && walletStatus.hasMultipleProviders) {
+                    console.log('Brave with multiple providers detected, attempting to use MetaMask...');
+                    
+                    // Try to find MetaMask provider
+                    const metaMaskProvider = window.ethereum.providers?.find(provider => provider.isMetaMask);
+                    if (metaMaskProvider) {
+                        console.log('Using MetaMask provider specifically');
+                        window.ethereum = metaMaskProvider;
+                    }
+                } else if (walletStatus.isBrave && !window.ethereum.isMetaMask) {
+                    showResult('walletStatus', 
+                        '🦁 <strong>Brave Wallet Detected!</strong><br><br>' +
+                        'It looks like Brave Wallet is the default. To use MetaMask instead:<br><br>' +
+                        '1. Go to <code>brave://settings/web3</code><br>' +
+                        '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
+                        '3. Restart Brave and try again<br><br>' +
+                        'Or continue with Brave Wallet (experimental)', 
+                        'error');
+                    return;
+                }
+
+                console.log('Requesting account access...');
+                showResult('walletStatus', 'Requesting wallet connection...', 'info');
+
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                console.log('Accounts received:', accounts);
+
+                if (accounts.length === 0) {
+                    throw new Error('No accounts returned from wallet');
+                }
+
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                const address = await signer.getAddress();
+                const network = await provider.getNetwork();
+                
+                console.log('Connected address:', address);
+                console.log('Connected network:', network);
+                
+                document.getElementById('walletStatus').style.display = 'block';
+                document.getElementById('walletAddress').textContent = address;
+                document.getElementById('walletStatus').className = 'status success';
+                document.getElementById('walletStatus').innerHTML = 
+                    `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
+
+                // Update button text
+                connectBtn.textContent = 'Wallet Connected';
+                
+                console.log('=== Wallet Connection Successful ===');
+
+            } catch (error) {
+                console.error('Wallet connection error:', error);
+                
+                let errorMessage = 'Error connecting wallet: ';
+                if (error.code === 4001) {
+                    errorMessage += 'Connection request was rejected by user';
+                } else if (error.code === -32002) {
+                    errorMessage += 'Connection request is already pending. Please check your wallet.';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                showResult('walletStatus', errorMessage, 'error');
+            } finally {
+                // Reset button state
+                connectBtn.textContent = originalText;
+                connectBtn.disabled = false;
+            }
+        }
+
+        async function checkExistingConnection() {
+            console.log('=== Checking Existing Connection ===');
+            
+            const walletStatus = checkWalletStatus();
+            if (!walletStatus.available) {
+                console.log('No wallet available');
+                return false;
+            }
+
+            if (walletStatus.connected) {
+                try {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    signer = provider.getSigner();
+                    const address = await signer.getAddress();
+                    const network = await provider.getNetwork();
+                    
+                    console.log('Existing connection found:', address);
+                    
+                    document.getElementById('walletStatus').style.display = 'block';
+                    document.getElementById('walletStatus').className = 'status success';
+                    document.getElementById('walletStatus').innerHTML = 
+                        `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
+                    
+                    const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
+                    connectBtn.textContent = 'Wallet Connected';
+                    
+                    return true;
+                } catch (error) {
+                    console.log('Failed to restore existing connection:', error);
+                }
+            }
+            
+            return false;
+        }
+
+        async function resolveENS() {
+            try {
+                const ensName = document.getElementById('ensInput').value;
+                if (!ensName) {
+                    showResult('ensResult', 'Please enter an ENS name', 'error');
+                    return;
+                }
+
+                const address = await provider.resolveName(ensName);
+                if (address) {
+                    const reverseName = await provider.lookupAddress(address);
+                    const result = `${ensName} → ${address}<br>Reverse: ${address} → ${reverseName || 'No ENS name'}`;
+                    showResult('ensResult', result, 'success');
+                } else {
+                    showResult('ensResult', `${ensName} not found`, 'error');
+                }
+            } catch (error) {
+                showResult('ensResult', 'Error resolving ENS: ' + error.message, 'error');
+            }
+        }
+
+        async function loadContract() {
+            try {
+                // Check if ethers is loaded
+                if (!checkEthersLoaded()) {
+                    showResult('contractInfo', 'Ethers.js library is not loaded. Please refresh the page and try again.', 'error');
+                    return;
+                }
+
+                const address = document.getElementById('contractAddress').value;
+                if (!address) {
+                    showResult('contractInfo', 'Please enter contract address', 'error');
+                    return;
+                }
+
+                contract = new ethers.Contract(address, CONTRACT_ABI, signer);
+                showResult('contractInfo', 'Contract loaded successfully!', 'success');
+            } catch (error) {
+                showResult('contractInfo', 'Error loading contract: ' + error.message, 'error');
+            }
+        }
+
+        async function getContractInfo() {
+            try {
+                if (!contract) {
+                    showResult('contractInfo', 'Please load a contract first', 'error');
+                    return;
+                }
+
+                const client = await contract.client();
+                const worker = await contract.worker();
+                const hourlyRate = await contract.hourlyRate();
+                const hoursRequired = await contract.hoursRequired();
+                const balance = await contract.getContractBalance();
+                const [clientApproved, workerApproved] = await contract.getApprovalStatus();
+                const paymentReleased = await contract.isPaymentReleased();
+
+                const info = `
+                    <strong>Contract Information:</strong><br>
+                    Client: ${client}<br>
+                    Worker: ${worker}<br>
+                    Hourly Rate: ${ethers.utils.formatEther(hourlyRate)} ETH<br>
+                    Hours Required: ${hoursRequired}<br>
+                    Contract Balance: ${ethers.utils.formatEther(balance)} ETH<br>
+                    Client Approved: ${clientApproved}<br>
+                    Worker Approved: ${workerApproved}<br>
+                    Payment Released: ${paymentReleased}
+                `;
+                showResult('contractInfo', info, 'info');
+            } catch (error) {
+                showResult('contractInfo', 'Error getting contract info: ' + error.message, 'error');
+            }
+        }
+
+        async function approveCompletion() {
+            try {
+                if (!contract) {
+                    showResult('actionResult', 'Please load a contract first', 'error');
+                    return;
+                }
+
+                // Check current approval status first
+                const [clientApproved, workerApproved] = await contract.getApprovalStatus();
+                const isPaymentReleased = await contract.isPaymentReleased();
+                
+                if (isPaymentReleased) {
+                    showResult('actionResult', 'Payment has already been released. No further approvals needed.', 'info');
+                    return;
+                }
+                
+                if (clientApproved && workerApproved) {
+                    showResult('actionResult', 'Both parties have already approved completion. Payment should be released.', 'info');
+                    return;
+                }
+
+                const tx = await contract.approveCompletion();
+                await tx.wait();
+                showResult('actionResult', 'Approval successful!<br><strong>Transaction:</strong> <span class="hash">' + tx.hash + '</span>', 'success');
+            } catch (error) {
+                // Enhanced error handling for common scenarios
+                if (error.message.includes('execution reverted')) {
+                    if (error.message.includes('Already approved') || error.message.includes('already approved')) {
+                        showResult('actionResult', 'You have already approved completion. Waiting for the other party to approve.', 'info');
+                    } else if (error.message.includes('Payment already released') || error.message.includes('already released')) {
+                        showResult('actionResult', 'Payment has already been released. The contract is complete.', 'info');
+                    } else {
+                        showResult('actionResult', 'Contract rejected the approval. This may be because:<br>• You have already approved<br>• Payment has been released<br>• Contract conditions are not met<br><br>Error: ' + error.message, 'error');
+                    }
+                } else {
+                    showResult('actionResult', 'Error approving: ' + error.message, 'error');
+                }
+            }
+        }
+
+        async function claimGuaranteed() {
+            try {
+                if (!contract) {
+                    showResult('actionResult', 'Please load a contract first', 'error');
+                    return;
+                }
+
+                const tx = await contract.claimGuaranteed();
+                await tx.wait();
+                showResult('actionResult', 'Guaranteed amount claimed!<br><strong>Transaction:</strong> <span class="hash">' + tx.hash + '</span>', 'success');
+            } catch (error) {
+                showResult('actionResult', 'Error claiming: ' + error.message, 'error');
+            }
+        }
+
+        async function getBalance() {
+            try {
+                if (!contract) {
+                    showResult('actionResult', 'Please load a contract first', 'error');
+                    return;
+                }
+
+                const balance = await contract.getContractBalance();
+                showResult('actionResult', 'Contract Balance: ' + ethers.utils.formatEther(balance) + ' ETH', 'info');
+            } catch (error) {
+                showResult('actionResult', 'Error getting balance: ' + error.message, 'error');
+            }
+        }
+
+        async function getBlockchainInfo() {
+            try {
+                const blockNumber = await provider.getBlockNumber();
+                const network = await provider.getNetwork();
+                const gasPrice = await provider.getGasPrice();
+                const balance = await signer.getBalance();
+
+                const info = `
+                    <strong>Blockchain Information:</strong><br>
+                    Current Block: ${blockNumber}<br>
+                    Network: ${network.name} (Chain ID: ${network.chainId})<br>
+                    Gas Price: ${ethers.utils.formatUnits(gasPrice, 'gwei')} Gwei<br>
+                    Your Balance: ${ethers.utils.formatEther(balance)} ETH
+                `;
+                showResult('blockchainInfo', info, 'info');
+            } catch (error) {
+                showResult('blockchainInfo', 'Error getting blockchain info: ' + error.message, 'error');
+            }
+        }
+
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = 'status ' + type;
+            element.style.display = 'block';
+        }
+
+        // Handle wallet events
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                console.log('Accounts changed:', accounts);
+                if (accounts.length === 0) {
+                    // User disconnected wallet
+                    document.getElementById('walletStatus').style.display = 'none';
+                    const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
+                    connectBtn.textContent = 'Connect Wallet';
+                } else {
+                    // Account switched, reconnect
+                    checkExistingConnection();
+                }
+            });
+
+            window.ethereum.on('chainChanged', (chainId) => {
+                console.log('Chain changed:', chainId);
+                // Reload the page to reset the dApp state
+                window.location.reload();
+            });
+        }
+
+        // Auto-check existing connection on page load
+        window.addEventListener('load', async () => {
+            console.log('=== Page Loaded - Checking Wallet Status ===');
+            
+            // Add a small delay to ensure MetaMask is fully loaded
+            setTimeout(async () => {
+                const isConnected = await checkExistingConnection();
+                if (!isConnected) {
+                    console.log('No existing connection found');
+                    
+                    // Show helpful message if no wallet detected
+                    const walletStatus = checkWalletStatus();
+                    if (!walletStatus.available) {
+                        let message = 'To use this dApp, please install MetaMask or another Web3 wallet first.';
+                        
+                        if (walletStatus.isBrave) {
+                            message = '🦁 <strong>Brave Browser Detected!</strong><br><br>' +
+                                'For the best experience with this dApp:<br><br>' +
+                                '1. Install MetaMask extension<br>' +
+                                '2. Go to <code>brave://settings/web3</code><br>' +
+                                '3. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
+                                '4. Restart Brave and return to this page<br><br>' +
+                                '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
+                        }
+                        
+                        showResult('walletStatus', message, 'info');
+                    }
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html> 
