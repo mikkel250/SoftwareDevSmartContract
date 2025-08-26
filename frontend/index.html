@@ -131,7 +131,7 @@
         <!-- Wallet Connection -->
         <div class="section">
             <h2>🔐 Wallet Connection</h2>
-            <button class="button" onclick="connectWallet()">Connect Wallet</button>
+            <button class="button" id="walletButton" onclick="handleWalletAction()">Connect Wallet</button>
             <div id="walletStatus" class="status info" style="display: none;">
                 Connected: <span id="walletAddress" class="address"></span>
             </div>
@@ -242,11 +242,23 @@
             return { available: false, reason: 'No wallet provider found', isBrave: isBrave };
         }
 
+        function handleWalletAction() {
+            if (typeof window.ethereum !== 'undefined' && window.ethereum.selectedAddress) {
+                // Wallet is connected, show disconnect confirmation
+                if (confirm('Are you sure you want to disconnect your wallet?')) {
+                    disconnectWallet();
+                }
+            } else {
+                // Wallet is not connected, connect it
+                connectWallet();
+            }
+        }
+
         async function connectWallet() {
             console.log('=== Starting Wallet Connection ===');
             
             // Show loading state
-            const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
+            const connectBtn = document.getElementById('walletButton');
             let originalText = 'Connect Wallet';
             if (connectBtn) {
                 originalText = connectBtn.textContent;
@@ -323,7 +335,7 @@
 
                 // Update button text
                 if (connectBtn) {
-                    connectBtn.textContent = 'Wallet Connected';
+                    connectBtn.textContent = 'Disconnect Wallet';
                 }
                 
                 console.log('=== Wallet Connection Successful ===');
@@ -350,6 +362,38 @@
             }
         }
 
+        function disconnectWallet() {
+            console.log('=== Disconnecting Wallet ===');
+            
+            // Clear wallet state
+            provider = null;
+            signer = null;
+            contract = null;
+            
+            // Update UI
+            const walletStatus = document.getElementById('walletStatus');
+            const walletAddress = document.getElementById('walletAddress');
+            const connectBtn = document.getElementById('walletButton');
+            
+            if (walletStatus) {
+                walletStatus.style.display = 'none';
+            }
+            if (walletAddress) {
+                walletAddress.textContent = '';
+            }
+            if (connectBtn) {
+                connectBtn.textContent = 'Connect Wallet';
+            }
+            
+            // Clear any contract info
+            const contractInfo = document.getElementById('contractInfo');
+            if (contractInfo) {
+                contractInfo.style.display = 'none';
+            }
+            
+            console.log('=== Wallet Disconnected ===');
+        }
+
         async function checkExistingConnection() {
             console.log('=== Checking Existing Connection ===');
             
@@ -373,8 +417,10 @@
                     document.getElementById('walletStatus').innerHTML = 
                         `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
                     
-                    const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
-                    connectBtn.textContent = 'Wallet Connected';
+                    const connectBtn = document.getElementById('walletButton');
+                    if (connectBtn) {
+                        connectBtn.textContent = 'Disconnect Wallet';
+                    }
                     
                     return true;
                 } catch (error) {
@@ -562,8 +608,10 @@
                 if (accounts.length === 0) {
                     // User disconnected wallet
                     document.getElementById('walletStatus').style.display = 'none';
-                    const connectBtn = document.querySelector('button[onclick="connectWallet()"]');
-                    connectBtn.textContent = 'Connect Wallet';
+                    const connectBtn = document.getElementById('walletButton');
+                    if (connectBtn) {
+                        connectBtn.textContent = 'Connect Wallet';
+                    }
                 } else {
                     // Account switched, reconnect
                     checkExistingConnection();
