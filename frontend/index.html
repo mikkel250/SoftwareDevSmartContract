@@ -135,6 +135,7 @@
             <div id="walletStatus" class="status info" style="display: none;">
                 Connected: <span id="walletAddress" class="address"></span>
             </div>
+            <div id="walletConnectionStatus" class="status" style="display: none;"></div>
         </div>
 
         <!-- ENS Resolution -->
@@ -173,6 +174,7 @@
 
     <script>
         let provider, signer, contract;
+        let isWalletConnected = false; // Track wallet connection state locally
         const CONTRACT_ABI = [
             "function client() view returns (address)",
             "function worker() view returns (address)",
@@ -242,14 +244,26 @@
             return { available: false, reason: 'No wallet provider found', isBrave: isBrave };
         }
 
-        function handleWalletAction() {
-            if (typeof window.ethereum !== 'undefined' && window.ethereum.selectedAddress) {
+        async function handleWalletAction() {
+            console.log('=== handleWalletAction called ===');
+            console.log('isWalletConnected:', isWalletConnected);
+            console.log('window.ethereum.selectedAddress:', window.ethereum?.selectedAddress);
+            console.log('provider:', provider);
+            console.log('signer:', signer);
+            
+            if (isWalletConnected) {
                 // Wallet is connected, show disconnect confirmation
+                console.log('Wallet is connected, showing disconnect confirmation');
                 if (confirm('Are you sure you want to disconnect your wallet?')) {
-                    disconnectWallet();
+                    console.log('User confirmed disconnect, calling disconnectWallet');
+                    await disconnectWallet();
+                    console.log('disconnectWallet completed');
+                } else {
+                    console.log('User cancelled disconnect');
                 }
             } else {
                 // Wallet is not connected, connect it
+                console.log('Wallet is not connected, calling connectWallet');
                 connectWallet();
             }
         }
@@ -267,6 +281,7 @@
             }
 
             try {
+                console.log('Checking wallet status...');
                 const walletStatus = checkWalletStatus();
                 
                 if (!walletStatus.available) {
@@ -274,13 +289,13 @@
                         '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Download MetaMask</a>';
                     
                     if (walletStatus.isBrave) {
-                        message = '🦁 <strong>Brave Browser Detected!</strong><br><br>' +
+                        message = '<strong>Brave Browser Detected!</strong><br><br>' +
                             'Brave has a built-in wallet that may conflict with MetaMask. To use MetaMask:<br><br>' +
                             '1. Go to <code>brave://settings/web3</code><br>' +
                             '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong> or <strong>"None"</strong><br>' +
                             '3. Restart Brave browser<br>' +
                             '4. Try connecting again<br><br>' +
-                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask if not installed</a>';
+                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
                     }
                     
                     showResult('walletStatus', message, 'error');
@@ -299,7 +314,7 @@
                     }
                 } else if (walletStatus.isBrave && !window.ethereum.isMetaMask) {
                     showResult('walletStatus', 
-                        '🦁 <strong>Brave Wallet Detected!</strong><br><br>' +
+                        ' <strong>Brave Wallet Detected!</strong><br><br>' +
                         'It looks like Brave Wallet is the default. To use MetaMask instead:<br><br>' +
                         '1. Go to <code>brave://settings/web3</code><br>' +
                         '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
@@ -310,7 +325,7 @@
                 }
 
                 console.log('Requesting account access...');
-                showResult('walletStatus', 'Requesting wallet connection...', 'info');
+                showResult('walletConnectionStatus', 'Requesting wallet connection...', 'info');
 
                 const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                 console.log('Accounts received:', accounts);
@@ -319,6 +334,7 @@
                     throw new Error('No accounts returned from wallet');
                 }
 
+                console.log('Creating provider and signer...');
                 provider = new ethers.providers.Web3Provider(window.ethereum);
                 signer = provider.getSigner();
                 const address = await signer.getAddress();
@@ -327,18 +343,60 @@
                 console.log('Connected address:', address);
                 console.log('Connected network:', network);
                 
-                document.getElementById('walletStatus').style.display = 'block';
-                document.getElementById('walletAddress').textContent = address;
-                document.getElementById('walletStatus').className = 'status success';
-                document.getElementById('walletStatus').innerHTML = 
-                    `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
+                console.log('Updating DOM elements...');
+                const walletStatusElement = document.getElementById('walletStatus');
+                const walletAddressElement = document.getElementById('walletAddress');
+                
+                console.log('DOM elements found:', {
+                    walletStatus: !!walletStatusElement,
+                    walletAddress: !!walletAddressElement,
+                    walletStatusId: walletStatusElement?.id,
+                    walletAddressId: walletAddressElement?.id
+                });
+                
+                if (!walletStatusElement || !walletAddressElement) {
+                    console.error('DOM elements missing:', {
+                        walletStatus: walletStatusElement,
+                        walletAddress: walletAddressElement
+                    });
+                    throw new Error('Required DOM elements not found');
+                }
+                
+                console.log('Updating wallet status display...');
+                walletStatusElement.style.display = 'block';
+                walletStatusElement.className = 'status success';
+                walletAddressElement.textContent = address;
+                
+                console.log('Adding network info...');
+                // Add network info below the address
+                const networkInfo = document.createElement('div');
+                networkInfo.style.fontSize = '0.9em';
+                networkInfo.style.marginTop = '5px';
+                networkInfo.textContent = `Network: ${network.name} (${network.chainId})`;
+                
+                // Clear any existing network info and add the new one
+                const existingNetworkInfo = walletStatusElement.querySelector('.network-info');
+                if (existingNetworkInfo) {
+                    existingNetworkInfo.remove();
+                }
+                networkInfo.className = 'network-info';
+                walletStatusElement.appendChild(networkInfo);
 
-                // Update button text
+                console.log('Updating button text and state...');
+                // Update button text and local state
                 if (connectBtn) {
                     connectBtn.textContent = 'Disconnect Wallet';
                 }
+                isWalletConnected = true;
                 
                 console.log('=== Wallet Connection Successful ===');
+                console.log('isWalletConnected after connect:', isWalletConnected);
+                
+                // Clear the connection status message
+                const connectionStatus = document.getElementById('walletConnectionStatus');
+                if (connectionStatus) {
+                    connectionStatus.style.display = 'none';
+                }
 
             } catch (error) {
                 console.error('Wallet connection error:', error);
@@ -348,11 +406,13 @@
                     errorMessage += 'Connection request was rejected by user';
                 } else if (error.code === -32002) {
                     errorMessage += 'Connection request is already pending. Please check your wallet.';
+                } else if (error.message.includes('Required DOM elements not found')) {
+                    errorMessage += 'Page structure error - please refresh the page and try again';
                 } else {
                     errorMessage += error.message;
                 }
                 
-                showResult('walletStatus', errorMessage, 'error');
+                showResult('walletConnectionStatus', errorMessage, 'error');
             } finally {
                 // Reset button state
                 if (connectBtn) {
@@ -362,40 +422,123 @@
             }
         }
 
-        function disconnectWallet() {
+        async function disconnectWallet() {
             console.log('=== Disconnecting Wallet ===');
+            
+            // Check if we actually have a connection to disconnect
+            if (!isWalletConnected && !provider && !signer) {
+                console.log('No active connection to disconnect');
+                return;
+            }
+            
+            // Log current status before disconnecting
+            getMetaMaskStatus();
             
             // Clear wallet state
             provider = null;
             signer = null;
             contract = null;
             
-            // Update UI
-            const walletStatus = document.getElementById('walletStatus');
-            const walletAddress = document.getElementById('walletAddress');
-            const connectBtn = document.getElementById('walletButton');
-            
-            if (walletStatus) {
-                walletStatus.style.display = 'none';
+            // Update UI with proper error handling
+            try {
+                const walletStatus = document.getElementById('walletStatus');
+                const walletAddress = document.getElementById('walletAddress');
+                const connectBtn = document.getElementById('walletButton');
+                
+                if (walletStatus) {
+                    walletStatus.style.display = 'none';
+                    // Clear any network info that was added
+                    const networkInfo = walletStatus.querySelector('.network-info');
+                    if (networkInfo) {
+                        networkInfo.remove();
+                    }
+                }
+                if (walletAddress) {
+                    walletAddress.textContent = '';
+                }
+                if (connectBtn) {
+                    connectBtn.textContent = 'Connect Wallet';
+                }
+                
+                // Clear any contract info
+                const contractInfo = document.getElementById('contractInfo');
+                if (contractInfo) {
+                    contractInfo.style.display = 'none';
+                }
+                
+                // Clear action results
+                const actionResult = document.getElementById('actionResult');
+                if (actionResult) {
+                    actionResult.style.display = 'none';
+                }
+                
+                // Clear connection status
+                const connectionStatus = document.getElementById('walletConnectionStatus');
+                if (connectionStatus) {
+                    connectionStatus.style.display = 'none';
+                }
+                
+                // Reset local connection state
+                isWalletConnected = false;
+                
+                // Proper MetaMask disconnect approach
+                if (typeof window.ethereum !== 'undefined') {
+                    try {
+                        // Method 1: Try to revoke permissions (MetaMask v10+)
+                        if (window.ethereum.request && typeof window.ethereum.request === 'function') {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_revokePermissions',
+                                    params: [{ eth_accounts: {} }]
+                                });
+                                console.log('Successfully revoked wallet permissions');
+                            } catch (e) {
+                                console.log('wallet_revokePermissions not supported or failed:', e.message);
+                                
+                                // Method 2: Try to disconnect using the newer disconnect method
+                                try {
+                                    if (window.ethereum.disconnect && typeof window.ethereum.disconnect === 'function') {
+                                        await window.ethereum.disconnect();
+                                        console.log('Successfully disconnected using disconnect method');
+                                    }
+                                } catch (e2) {
+                                    console.log('disconnect method not supported or failed:', e2.message);
+                                }
+                            }
+                        }
+                        
+                        // Method 3: Remove event listeners to prevent reconnection
+                        if (window.ethereum.removeAllListeners && typeof window.ethereum.removeAllListeners === 'function') {
+                            window.ethereum.removeAllListeners();
+                            console.log('Removed all event listeners');
+                        }
+                        
+                    } catch (e) {
+                        console.log('Error during MetaMask disconnect:', e.message);
+                    }
+                }
+                
+                console.log('=== Wallet Disconnected ===');
+                console.log('isWalletConnected after disconnect:', isWalletConnected);
+                console.log('provider after disconnect:', provider);
+                console.log('signer after disconnect:', signer);
+                
+                // Show success message
+                showResult('walletConnectionStatus', 'Wallet disconnected successfully!', 'success');
+                
+            } catch (error) {
+                console.error('Error during wallet disconnect:', error);
+                // Even if there's an error, reset the local state
+                isWalletConnected = false;
+                showResult('walletConnectionStatus', 'Error disconnecting wallet, but local state cleared', 'error');
             }
-            if (walletAddress) {
-                walletAddress.textContent = '';
-            }
-            if (connectBtn) {
-                connectBtn.textContent = 'Connect Wallet';
-            }
-            
-            // Clear any contract info
-            const contractInfo = document.getElementById('contractInfo');
-            if (contractInfo) {
-                contractInfo.style.display = 'none';
-            }
-            
-            console.log('=== Wallet Disconnected ===');
         }
 
         async function checkExistingConnection() {
             console.log('=== Checking Existing Connection ===');
+            
+            // Get current MetaMask status
+            const metaMaskStatus = getMetaMaskStatus();
             
             const walletStatus = checkWalletStatus();
             if (!walletStatus.available) {
@@ -412,19 +555,46 @@
                     
                     console.log('Existing connection found:', address);
                     
-                    document.getElementById('walletStatus').style.display = 'block';
-                    document.getElementById('walletStatus').className = 'status success';
-                    document.getElementById('walletStatus').innerHTML = 
-                        `Connected: <span class="address">${address}</span><br>Network: ${network.name} (${network.chainId})`;
+                    const walletStatusElement = document.getElementById('walletStatus');
+                    const walletAddressElement = document.getElementById('walletAddress');
+                    
+                    if (!walletStatusElement || !walletAddressElement) {
+                        console.log('Required DOM elements not found in checkExistingConnection');
+                        return false;
+                    }
+                    
+                    walletStatusElement.style.display = 'block';
+                    walletStatusElement.className = 'status success';
+                    walletAddressElement.textContent = address;
+                    
+                    // Add network info below the address
+                    const networkInfo = document.createElement('div');
+                    networkInfo.style.fontSize = '0.9em';
+                    networkInfo.style.marginTop = '5px';
+                    networkInfo.textContent = `Network: ${network.name} (${network.chainId})`;
+                    
+                    // Clear any existing network info and add the new one
+                    const existingNetworkInfo = walletStatusElement.querySelector('.network-info');
+                    if (existingNetworkInfo) {
+                        existingNetworkInfo.remove();
+                    }
+                    networkInfo.className = 'network-info';
+                    walletStatusElement.appendChild(networkInfo);
                     
                     const connectBtn = document.getElementById('walletButton');
                     if (connectBtn) {
                         connectBtn.textContent = 'Disconnect Wallet';
                     }
                     
+                    isWalletConnected = true;
                     return true;
                 } catch (error) {
                     console.log('Failed to restore existing connection:', error);
+                    // Reset state on error
+                    isWalletConnected = false;
+                    provider = null;
+                    signer = null;
+                    return false;
                 }
             }
             
@@ -601,19 +771,81 @@
             element.style.display = 'block';
         }
 
+        function testDOMAccess() {
+            console.log('=== Testing DOM Access ===');
+            const elements = {
+                walletStatus: document.getElementById('walletStatus'),
+                walletAddress: document.getElementById('walletAddress'),
+                walletButton: document.getElementById('walletButton')
+            };
+            
+            console.log('DOM elements test:', {
+                walletStatus: {
+                    found: !!elements.walletStatus,
+                    id: elements.walletStatus?.id,
+                    tagName: elements.walletStatus?.tagName,
+                    className: elements.walletStatus?.className
+                },
+                walletAddress: {
+                    found: !!elements.walletAddress,
+                    id: elements.walletAddress?.id,
+                    tagName: elements.walletAddress?.tagName,
+                    className: elements.walletAddress?.className
+                },
+                walletButton: {
+                    found: !!elements.walletButton,
+                    id: elements.walletButton?.id,
+                    tagName: elements.walletButton?.tagName,
+                    textContent: elements.walletButton?.textContent
+                }
+            });
+            
+            return elements.walletStatus && elements.walletAddress && elements.walletButton;
+        }
+
+        function getMetaMaskStatus() {
+            console.log('=== MetaMask Status Check ===');
+            const isBrave = navigator.brave && navigator.brave.isBrave;
+            
+            const status = {
+                ethereumExists: typeof window.ethereum !== 'undefined',
+                selectedAddress: window.ethereum?.selectedAddress,
+                isConnected: window.ethereum?.selectedAddress !== null && window.ethereum?.selectedAddress !== undefined,
+                isMetaMask: window.ethereum?.isMetaMask,
+                chainId: window.ethereum?.chainId,
+                networkVersion: window.ethereum?.networkVersion,
+                isBrave: isBrave,
+                hasMultipleProviders: window.ethereum?.providers && window.ethereum.providers.length > 0,
+                localState: {
+                    isWalletConnected,
+                    hasProvider: !!provider,
+                    hasSigner: !!signer
+                }
+            };
+            
+            console.log('MetaMask Status:', status);
+            return status;
+        }
+
         // Handle wallet events
         if (typeof window.ethereum !== 'undefined') {
             window.ethereum.on('accountsChanged', (accounts) => {
                 console.log('Accounts changed:', accounts);
                 if (accounts.length === 0) {
                     // User disconnected wallet
+                    console.log('Wallet disconnected via accountsChanged event');
                     document.getElementById('walletStatus').style.display = 'none';
                     const connectBtn = document.getElementById('walletButton');
                     if (connectBtn) {
                         connectBtn.textContent = 'Connect Wallet';
                     }
+                    isWalletConnected = false;
+                    provider = null;
+                    signer = null;
+                    contract = null;
                 } else {
                     // Account switched, reconnect
+                    console.log('Account switched, reconnecting...');
                     checkExistingConnection();
                 }
             });
@@ -623,6 +855,33 @@
                 // Reload the page to reset the dApp state
                 window.location.reload();
             });
+            
+            // Handle disconnect event (MetaMask v10+)
+            if (window.ethereum.on && typeof window.ethereum.on === 'function') {
+                try {
+                    window.ethereum.on('disconnect', (error) => {
+                        console.log('MetaMask disconnect event:', error);
+                        // Reset local state when MetaMask disconnects
+                        isWalletConnected = false;
+                        provider = null;
+                        signer = null;
+                        contract = null;
+                        
+                        // Update UI
+                        const walletStatus = document.getElementById('walletStatus');
+                        const connectBtn = document.getElementById('walletButton');
+                        
+                        if (walletStatus) {
+                            walletStatus.style.display = 'none';
+                        }
+                        if (connectBtn) {
+                            connectBtn.textContent = 'Connect Wallet';
+                        }
+                    });
+                } catch (e) {
+                    console.log('disconnect event not supported:', e.message);
+                }
+            }
         }
 
         // Auto-check existing connection on page load
@@ -631,27 +890,63 @@
             
             // Add a small delay to ensure MetaMask is fully loaded
             setTimeout(async () => {
-                const isConnected = await checkExistingConnection();
-                if (!isConnected) {
-                    console.log('No existing connection found');
-                    
-                    // Show helpful message if no wallet detected
-                    const walletStatus = checkWalletStatus();
-                    if (!walletStatus.available) {
-                        let message = 'To use this dApp, please install MetaMask or another Web3 wallet first.';
-                        
-                        if (walletStatus.isBrave) {
-                            message = '🦁 <strong>Brave Browser Detected!</strong><br><br>' +
-                                'For the best experience with this dApp:<br><br>' +
-                                '1. Install MetaMask extension<br>' +
-                                '2. Go to <code>brave://settings/web3</code><br>' +
-                                '3. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
-                                '4. Restart Brave and return to this page<br><br>' +
-                                '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
-                        }
-                        
-                        showResult('walletStatus', message, 'info');
+                // First check if DOM elements are available
+                const walletStatus = document.getElementById('walletStatus');
+                const walletAddress = document.getElementById('walletAddress');
+                const walletButton = document.getElementById('walletButton');
+                
+                console.log('DOM elements check on load:', {
+                    walletStatus: !!walletStatus,
+                    walletAddress: !!walletAddress,
+                    walletButton: !!walletButton
+                });
+                
+                if (!walletStatus || !walletAddress || !walletButton) {
+                    console.error('Critical DOM elements missing on page load');
+                    return;
+                }
+                
+                // Test DOM access
+                if (!testDOMAccess()) {
+                    console.error('DOM access test failed');
+                    return;
+                }
+                
+                // Check MetaMask status
+                const metaMaskStatus = getMetaMaskStatus();
+                console.log('MetaMask status on page load:', metaMaskStatus);
+                
+                // If MetaMask is connected, restore the connection
+                if (metaMaskStatus.isConnected) {
+                    console.log('MetaMask is connected, restoring connection...');
+                    const isConnected = await checkExistingConnection();
+                    if (isConnected) {
+                        console.log('Successfully restored existing connection');
+                        return;
                     }
+                }
+                
+                // If no existing connection found
+                console.log('No existing connection found');
+                
+                // Show helpful message if no wallet detected
+                if (!metaMaskStatus.ethereumExists) {
+                    let message = 'To use this dApp, please install MetaMask or another Web3 wallet first.';
+                    
+                    if (metaMaskStatus.isBrave) {
+                        message = ' <strong>Brave Browser Detected!</strong><br><br>' +
+                            'For the best experience with this dApp:<br><br>' +
+                            '1. Install MetaMask extension<br>' +
+                            '2. Go to <code>brave://settings/web3</code><br>' +
+                            '3. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
+                            '4. Restart Brave and return to this page<br><br>' +
+                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
+                    }
+                    
+                    showResult('walletConnectionStatus', message, 'info');
+                } else if (!metaMaskStatus.isConnected) {
+                    // MetaMask exists but not connected
+                    showResult('walletConnectionStatus', 'MetaMask detected. Click "Connect Wallet" to connect.', 'info');
                 }
             }, 100);
         });
