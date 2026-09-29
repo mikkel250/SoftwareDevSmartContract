@@ -126,9 +126,9 @@ async function main() {
   }
   
   if (!workerAddress) {
-    // Fallback to a generated address
-    workerAddress = ethers.Wallet.createRandom().address;
-    console.log(`ENS name ${workerENS} not found, using generated address: ${workerAddress}`);
+    throw new Error(
+      `ENS name ${workerENS} could not be resolved; aborting before deploy`
+    );
   }
 
   // Deploy contract

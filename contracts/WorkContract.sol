@@ -40,6 +40,9 @@ contract WorkContract {
     /// @notice Whether payment has been released
     bool public paymentReleased;
 
+    /// @notice ETH credited when a direct transfer fails, claimable via withdraw()
+    mapping(address => uint) public pendingWithdrawals;
+
     /// @notice Emitted when payment is released to a party
     event PaymentReleased(address indexed to, uint amount);
 
@@ -54,6 +57,9 @@ contract WorkContract {
 
     /// @notice Emitted when a timeout claim is made
     event TimeoutClaim(address indexed claimer, uint amount);
+
+    /// @notice Emitted when a payee withdraws ETH that could not be pushed
+    event Withdrawal(address indexed to, uint amount);
 
     /**
      * @notice Initializes the contract with work parameters
@@ -73,6 +79,7 @@ contract WorkContract {
         uint _maxDuration
     ) payable {
         require(_worker != address(0), "Worker address cannot be zero");
+        require(_worker != msg.sender, "Worker cannot be client");
         require(_hourlyRate > 0, "Hourly rate must be positive");
         require(_hoursRequired > 0, "Hours required must be positive");
         require(_guaranteedAmount > 0, "Guaranteed amount must be positive");
@@ -93,8 +100,8 @@ contract WorkContract {
         uint requiredAmount = hourlyRate * hoursRequired;
         require(msg.value >= requiredAmount, "Insufficient contract funding");
         require(
-            guaranteedAmount <= msg.value,
-            "Guaranteed amount exceeds sent value"
+            guaranteedAmount <= requiredAmount,
+            "Guaranteed exceeds full payment"
         );
 
         clientApproved = false;
@@ -122,15 +129,21 @@ contract WorkContract {
         }
         if (clientApproved && workerApproved && !paymentReleased) {
             paymentReleased = true;
+            uint balance = address(this).balance;
             uint payment = hourlyRate * hoursRequired;
-            (bool sent, ) = worker.call{value: payment}("");
-            require(sent, "Failed to send payment to worker");
+            require(balance >= payment, "Insufficient contract balance");
+            uint surplus = balance - payment;
+            _sendOrCredit(worker, payment);
             emit PaymentReleased(worker, payment);
+            if (surplus > 0) {
+                _sendOrCredit(client, surplus);
+                emit RefundIssued(client, surplus);
+            }
         }
     }
 
     /**
-     * @notice Worker claims the guaranteed payment if full approval is not reached.
+     * @notice Worker claims the guaranteed payment after approving, if the client has not.
      * @dev Emits GuaranteedClaimed and RefundIssued events.
      */
     function claimGuaranteed() public {
@@ -138,6 +151,8 @@ contract WorkContract {
             msg.sender == worker,
             "Only worker can claim guaranteed payment"
         );
+        require(workerApproved, "Worker has not approved");
+        require(!clientApproved, "Client has already approved");
         require(!paymentReleased, "Payment already released");
         require(
             address(this).balance >= guaranteedAmount,
@@ -146,14 +161,12 @@ contract WorkContract {
 
         paymentReleased = true;
 
-        (bool sentWorker, ) = worker.call{value: guaranteedAmount}("");
-        require(sentWorker, "Failed to send guaranteed payment to worker");
+        _sendOrCredit(worker, guaranteedAmount);
         emit GuaranteedClaimed(worker, guaranteedAmount);
 
         uint refund = address(this).balance;
         if (refund > 0) {
-            (bool sentClient, ) = client.call{value: refund}("");
-            require(sentClient, "Failed to refund remaining balance to client");
+            _sendOrCredit(client, refund);
             emit RefundIssued(client, refund);
         }
     }
@@ -170,8 +183,7 @@ contract WorkContract {
         uint balance = address(this).balance;
         require(balance > 0, "No funds to claim");
         paymentReleased = true;
-        (bool sent, ) = worker.call{value: balance}("");
-        require(sent, "Failed to send funds to worker");
+        _sendOrCredit(worker, balance);
         emit TimeoutClaim(worker, balance);
     }
 
@@ -187,9 +199,34 @@ contract WorkContract {
         uint balance = address(this).balance;
         require(balance > 0, "No funds to claim");
         paymentReleased = true;
-        (bool sent, ) = client.call{value: balance}("");
-        require(sent, "Failed to send funds to client");
+        _sendOrCredit(client, balance);
         emit TimeoutClaim(client, balance);
+    }
+
+    /**
+     * @notice Withdraw ETH that was credited because a direct transfer failed.
+     */
+    function withdraw() public {
+        uint amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "Nothing to withdraw");
+        pendingWithdrawals[msg.sender] = 0;
+        (bool sent, ) = payable(msg.sender).call{value: amount}("");
+        require(sent, "Withdraw failed");
+        emit Withdrawal(msg.sender, amount);
+    }
+
+    /**
+     * @dev Push ETH to `to`. If the recipient rejects it, credit pendingWithdrawals
+     * so the rest of the payout can still complete.
+     */
+    function _sendOrCredit(address payable to, uint amount) internal {
+        if (amount == 0) {
+            return;
+        }
+        (bool sent, ) = to.call{value: amount}("");
+        if (!sent) {
+            pendingWithdrawals[to] += amount;
+        }
     }
 
     /**

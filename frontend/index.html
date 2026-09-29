@@ -158,9 +158,13 @@
         <!-- Contract Actions -->
         <div class="section">
             <h2>⚡ Contract Actions</h2>
-            <button class="button" onclick="approveCompletion()">Approve Completion</button>
-            <button class="button" onclick="claimGuaranteed()">Claim Guaranteed Amount</button>
-            <button class="button" onclick="getBalance()">Get Contract Balance</button>
+            <div id="contractActions">
+            <button class="button" id="approveBtn" onclick="approveCompletion()">Approve Completion</button>
+            <button class="button" id="claimGuaranteedBtn" onclick="claimGuaranteed()">Claim Guaranteed Amount</button>
+            <button class="button" id="workerClaimBtn" onclick="workerClaimAfterDeadline()">Worker Claim After Deadline</button>
+            <button class="button" id="clientClaimBtn" onclick="clientClaimAfterDeadline()">Client Claim After Deadline</button>
+            <button class="button" id="balanceBtn" onclick="getBalance()">Get Contract Balance</button>
+            </div>
             <div id="actionResult" class="status" style="display: none;"></div>
         </div>
 
@@ -273,9 +277,7 @@
             
             // Show loading state
             const connectBtn = document.getElementById('walletButton');
-            let originalText = 'Connect Wallet';
             if (connectBtn) {
-                originalText = connectBtn.textContent;
                 connectBtn.textContent = 'Connecting...';
                 connectBtn.disabled = true;
             }
@@ -409,128 +411,90 @@
                 } else if (error.message.includes('Required DOM elements not found')) {
                     errorMessage += 'Page structure error - please refresh the page and try again';
                 } else {
-                    errorMessage += error.message;
+                    errorMessage += escapeHtml(error.message);
                 }
                 
                 showResult('walletConnectionStatus', errorMessage, 'error');
             } finally {
-                // Reset button state
                 if (connectBtn) {
-                    connectBtn.textContent = originalText;
+                    connectBtn.textContent = isWalletConnected ? 'Disconnect Wallet' : 'Connect Wallet';
                     connectBtn.disabled = false;
                 }
             }
         }
 
+        function clearWalletSession() {
+            provider = null;
+            signer = null;
+            contract = null;
+            isWalletConnected = false;
+
+            const walletStatus = document.getElementById('walletStatus');
+            const walletAddress = document.getElementById('walletAddress');
+            const connectBtn = document.getElementById('walletButton');
+
+            if (walletStatus) {
+                walletStatus.style.display = 'none';
+                const networkInfo = walletStatus.querySelector('.network-info');
+                if (networkInfo) {
+                    networkInfo.remove();
+                }
+            }
+            if (walletAddress) {
+                walletAddress.textContent = '';
+            }
+            if (connectBtn) {
+                connectBtn.textContent = 'Connect Wallet';
+                connectBtn.disabled = false;
+            }
+
+            ['contractInfo', 'actionResult', 'walletConnectionStatus'].forEach((id) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.style.display = 'none';
+                }
+            });
+        }
+
         async function disconnectWallet() {
             console.log('=== Disconnecting Wallet ===');
-            
-            // Check if we actually have a connection to disconnect
+
             if (!isWalletConnected && !provider && !signer) {
                 console.log('No active connection to disconnect');
                 return;
             }
-            
-            // Log current status before disconnecting
+
             getMetaMaskStatus();
-            
-            // Clear wallet state
-            provider = null;
-            signer = null;
-            contract = null;
-            
-            // Update UI with proper error handling
+            const connectBtn = document.getElementById('walletButton');
+            if (connectBtn) {
+                connectBtn.disabled = true;
+                connectBtn.textContent = 'Disconnecting...';
+            }
+
             try {
-                const walletStatus = document.getElementById('walletStatus');
-                const walletAddress = document.getElementById('walletAddress');
-                const connectBtn = document.getElementById('walletButton');
-                
-                if (walletStatus) {
-                    walletStatus.style.display = 'none';
-                    // Clear any network info that was added
-                    const networkInfo = walletStatus.querySelector('.network-info');
-                    if (networkInfo) {
-                        networkInfo.remove();
-                    }
-                }
-                if (walletAddress) {
-                    walletAddress.textContent = '';
-                }
-                if (connectBtn) {
-                    connectBtn.textContent = 'Connect Wallet';
-                }
-                
-                // Clear any contract info
-                const contractInfo = document.getElementById('contractInfo');
-                if (contractInfo) {
-                    contractInfo.style.display = 'none';
-                }
-                
-                // Clear action results
-                const actionResult = document.getElementById('actionResult');
-                if (actionResult) {
-                    actionResult.style.display = 'none';
-                }
-                
-                // Clear connection status
-                const connectionStatus = document.getElementById('walletConnectionStatus');
-                if (connectionStatus) {
-                    connectionStatus.style.display = 'none';
-                }
-                
-                // Reset local connection state
-                isWalletConnected = false;
-                
-                // Proper MetaMask disconnect approach
-                if (typeof window.ethereum !== 'undefined') {
+                if (typeof window.ethereum !== 'undefined' && window.ethereum.request) {
                     try {
-                        // Method 1: Try to revoke permissions (MetaMask v10+)
-                        if (window.ethereum.request && typeof window.ethereum.request === 'function') {
-                            try {
-                                await window.ethereum.request({
-                                    method: 'wallet_revokePermissions',
-                                    params: [{ eth_accounts: {} }]
-                                });
-                                console.log('Successfully revoked wallet permissions');
-                            } catch (e) {
-                                console.log('wallet_revokePermissions not supported or failed:', e.message);
-                                
-                                // Method 2: Try to disconnect using the newer disconnect method
-                                try {
-                                    if (window.ethereum.disconnect && typeof window.ethereum.disconnect === 'function') {
-                                        await window.ethereum.disconnect();
-                                        console.log('Successfully disconnected using disconnect method');
-                                    }
-                                } catch (e2) {
-                                    console.log('disconnect method not supported or failed:', e2.message);
-                                }
-                            }
-                        }
-                        
-                        // Method 3: Remove event listeners to prevent reconnection
-                        if (window.ethereum.removeAllListeners && typeof window.ethereum.removeAllListeners === 'function') {
-                            window.ethereum.removeAllListeners();
-                            console.log('Removed all event listeners');
-                        }
-                        
+                        await window.ethereum.request({
+                            method: 'wallet_revokePermissions',
+                            params: [{ eth_accounts: {} }]
+                        });
+                        console.log('Successfully revoked wallet permissions');
                     } catch (e) {
-                        console.log('Error during MetaMask disconnect:', e.message);
+                        console.log('wallet_revokePermissions not supported or failed:', e.message);
+                        try {
+                            if (window.ethereum.disconnect && typeof window.ethereum.disconnect === 'function') {
+                                await window.ethereum.disconnect();
+                                console.log('Successfully disconnected using disconnect method');
+                            }
+                        } catch (e2) {
+                            console.log('disconnect method not supported or failed:', e2.message);
+                        }
                     }
                 }
-                
+            } finally {
+                clearWalletSession();
                 console.log('=== Wallet Disconnected ===');
-                console.log('isWalletConnected after disconnect:', isWalletConnected);
-                console.log('provider after disconnect:', provider);
-                console.log('signer after disconnect:', signer);
-                
-                // Show success message
                 showResult('walletConnectionStatus', 'Wallet disconnected successfully!', 'success');
-                
-            } catch (error) {
-                console.error('Error during wallet disconnect:', error);
-                // Even if there's an error, reset the local state
-                isWalletConnected = false;
-                showResult('walletConnectionStatus', 'Error disconnecting wallet, but local state cleared', 'error');
             }
         }
 
@@ -612,13 +576,13 @@
                 const address = await provider.resolveName(ensName);
                 if (address) {
                     const reverseName = await provider.lookupAddress(address);
-                    const result = `${ensName} → ${address}<br>Reverse: ${address} → ${reverseName || 'No ENS name'}`;
+                    const result = `${escapeHtml(ensName)} → ${escapeHtml(address)}<br>Reverse: ${escapeHtml(address)} → ${escapeHtml(reverseName || 'No ENS name')}`;
                     showResult('ensResult', result, 'success');
                 } else {
-                    showResult('ensResult', `${ensName} not found`, 'error');
+                    showResult('ensResult', `${escapeHtml(ensName)} not found`, 'error');
                 }
             } catch (error) {
-                showResult('ensResult', 'Error resolving ENS: ' + error.message, 'error');
+                showResult('ensResult', 'Error resolving ENS: ' + escapeHtml(error.message), 'error');
             }
         }
 
@@ -630,16 +594,29 @@
                     return;
                 }
 
-                const address = document.getElementById('contractAddress').value;
-                if (!address) {
-                    showResult('contractInfo', 'Please enter contract address', 'error');
+                if (!provider || !signer) {
+                    showResult('contractInfo', 'Connect a wallet before loading a contract', 'error');
+                    return;
+                }
+
+                const address = document.getElementById('contractAddress').value.trim();
+                if (!address || !ethers.utils.isAddress(address)) {
+                    showResult('contractInfo', 'Enter a valid contract address', 'error');
+                    return;
+                }
+
+                const code = await provider.getCode(address);
+                if (!code || code === '0x') {
+                    showResult('contractInfo', 'No contract code at that address', 'error');
                     return;
                 }
 
                 contract = new ethers.Contract(address, CONTRACT_ABI, signer);
+                await contract.getContractBalance();
                 showResult('contractInfo', 'Contract loaded successfully!', 'success');
             } catch (error) {
-                showResult('contractInfo', 'Error loading contract: ' + error.message, 'error');
+                contract = null;
+                showResult('contractInfo', 'Error loading contract: ' + escapeHtml(error.message), 'error');
             }
         }
 
@@ -660,22 +637,38 @@
 
                 const info = `
                     <strong>Contract Information:</strong><br>
-                    Client: ${client}<br>
-                    Worker: ${worker}<br>
-                    Hourly Rate: ${ethers.utils.formatEther(hourlyRate)} ETH<br>
-                    Hours Required: ${hoursRequired}<br>
-                    Contract Balance: ${ethers.utils.formatEther(balance)} ETH<br>
-                    Client Approved: ${clientApproved}<br>
-                    Worker Approved: ${workerApproved}<br>
-                    Payment Released: ${paymentReleased}
+                    Client: ${escapeHtml(client)}<br>
+                    Worker: ${escapeHtml(worker)}<br>
+                    Hourly Rate: ${escapeHtml(ethers.utils.formatEther(hourlyRate))} ETH<br>
+                    Hours Required: ${escapeHtml(hoursRequired)}<br>
+                    Contract Balance: ${escapeHtml(ethers.utils.formatEther(balance))} ETH<br>
+                    Client Approved: ${escapeHtml(clientApproved)}<br>
+                    Worker Approved: ${escapeHtml(workerApproved)}<br>
+                    Payment Released: ${escapeHtml(paymentReleased)}
                 `;
                 showResult('contractInfo', info, 'info');
             } catch (error) {
-                showResult('contractInfo', 'Error getting contract info: ' + error.message, 'error');
+                showResult('contractInfo', 'Error getting contract info: ' + escapeHtml(error.message), 'error');
+            }
+        }
+
+        function setContractActionsDisabled(disabled) {
+            document.querySelectorAll('#contractActions button').forEach((button) => {
+                button.disabled = disabled;
+            });
+        }
+
+        async function runContractAction(action) {
+            setContractActionsDisabled(true);
+            try {
+                await action();
+            } finally {
+                setContractActionsDisabled(false);
             }
         }
 
         async function approveCompletion() {
+            await runContractAction(async () => {
             try {
                 if (!contract) {
                     showResult('actionResult', 'Please load a contract first', 'error');
@@ -698,7 +691,7 @@
 
                 const tx = await contract.approveCompletion();
                 await tx.wait();
-                showResult('actionResult', 'Approval successful!<br><strong>Transaction:</strong> <span class="hash">' + tx.hash + '</span>', 'success');
+                showResult('actionResult', 'Approval successful!<br><strong>Transaction:</strong> <span class="hash">' + escapeHtml(tx.hash) + '</span>', 'success');
             } catch (error) {
                 // Enhanced error handling for common scenarios
                 if (error.message.includes('execution reverted')) {
@@ -707,30 +700,53 @@
                     } else if (error.message.includes('Payment already released') || error.message.includes('already released')) {
                         showResult('actionResult', 'Payment has already been released. The contract is complete.', 'info');
                     } else {
-                        showResult('actionResult', 'Contract rejected the approval. This may be because:<br>• You have already approved<br>• Payment has been released<br>• Contract conditions are not met<br><br>Error: ' + error.message, 'error');
+                        showResult('actionResult', 'Contract rejected the approval. This may be because:<br>• You have already approved<br>• Payment has been released<br>• Contract conditions are not met<br><br>Error: ' + escapeHtml(error.message), 'error');
                     }
                 } else {
-                    showResult('actionResult', 'Error approving: ' + error.message, 'error');
+                    showResult('actionResult', 'Error approving: ' + escapeHtml(error.message), 'error');
                 }
             }
+            });
         }
 
         async function claimGuaranteed() {
+            await runContractAction(() => sendContractTx(
+                () => contract.claimGuaranteed(),
+                'Guaranteed amount claimed!'
+            ));
+        }
+
+        async function workerClaimAfterDeadline() {
+            await runContractAction(() => sendContractTx(
+                () => contract.workerClaimAfterDeadline(),
+                'Worker deadline claim successful!'
+            ));
+        }
+
+        async function clientClaimAfterDeadline() {
+            await runContractAction(() => sendContractTx(
+                () => contract.clientClaimAfterDeadline(),
+                'Client deadline claim successful!'
+            ));
+        }
+
+        async function sendContractTx(send, successLabel) {
             try {
                 if (!contract) {
                     showResult('actionResult', 'Please load a contract first', 'error');
                     return;
                 }
 
-                const tx = await contract.claimGuaranteed();
+                const tx = await send();
                 await tx.wait();
-                showResult('actionResult', 'Guaranteed amount claimed!<br><strong>Transaction:</strong> <span class="hash">' + tx.hash + '</span>', 'success');
+                showResult('actionResult', escapeHtml(successLabel) + '<br><strong>Transaction:</strong> <span class="hash">' + escapeHtml(tx.hash) + '</span>', 'success');
             } catch (error) {
-                showResult('actionResult', 'Error claiming: ' + error.message, 'error');
+                showResult('actionResult', 'Error sending transaction: ' + escapeHtml(error.message), 'error');
             }
         }
 
         async function getBalance() {
+            await runContractAction(async () => {
             try {
                 if (!contract) {
                     showResult('actionResult', 'Please load a contract first', 'error');
@@ -738,10 +754,11 @@
                 }
 
                 const balance = await contract.getContractBalance();
-                showResult('actionResult', 'Contract Balance: ' + ethers.utils.formatEther(balance) + ' ETH', 'info');
+                showResult('actionResult', 'Contract Balance: ' + escapeHtml(ethers.utils.formatEther(balance)) + ' ETH', 'info');
             } catch (error) {
-                showResult('actionResult', 'Error getting balance: ' + error.message, 'error');
+                showResult('actionResult', 'Error getting balance: ' + escapeHtml(error.message), 'error');
             }
+            });
         }
 
         async function getBlockchainInfo() {
@@ -753,15 +770,24 @@
 
                 const info = `
                     <strong>Blockchain Information:</strong><br>
-                    Current Block: ${blockNumber}<br>
-                    Network: ${network.name} (Chain ID: ${network.chainId})<br>
-                    Gas Price: ${ethers.utils.formatUnits(gasPrice, 'gwei')} Gwei<br>
-                    Your Balance: ${ethers.utils.formatEther(balance)} ETH
+                    Current Block: ${escapeHtml(blockNumber)}<br>
+                    Network: ${escapeHtml(network.name)} (Chain ID: ${escapeHtml(network.chainId)})<br>
+                    Gas Price: ${escapeHtml(ethers.utils.formatUnits(gasPrice, 'gwei'))} Gwei<br>
+                    Your Balance: ${escapeHtml(ethers.utils.formatEther(balance))} ETH
                 `;
                 showResult('blockchainInfo', info, 'info');
             } catch (error) {
-                showResult('blockchainInfo', 'Error getting blockchain info: ' + error.message, 'error');
+                showResult('blockchainInfo', 'Error getting blockchain info: ' + escapeHtml(error.message), 'error');
             }
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         function showResult(elementId, message, type) {
