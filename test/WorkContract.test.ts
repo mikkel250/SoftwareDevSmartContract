@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { time, loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { time, loadFixture, setBalance } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { WorkContract } from "../typechain-types";
 
 describe("WorkContract", function () {
@@ -200,6 +200,26 @@ describe("WorkContract", function () {
 
     it("Should prevent the client from claiming before the deadline", async function () {
       const { contract, client } = await loadFixture(deployWorkContractFixture);
+
+      await expect(contract.connect(client).clientClaimAfterDeadline()).to.be.revertedWith(
+        "Deadline not reached"
+      );
+    });
+
+    it("Should reject the worker timeout claim when the timestamp equals maxDeadline", async function () {
+      const { contract, worker } = await loadFixture(deployWorkContractFixture);
+      const [, maxDeadline] = await contract.getDeadlines();
+      await time.setNextBlockTimestamp(maxDeadline);
+
+      await expect(contract.connect(worker).workerClaimAfterDeadline()).to.be.revertedWith(
+        "Deadline not reached"
+      );
+    });
+
+    it("Should reject the client timeout claim when the timestamp equals maxDeadline", async function () {
+      const { contract, client } = await loadFixture(deployWorkContractFixture);
+      const [, maxDeadline] = await contract.getDeadlines();
+      await time.setNextBlockTimestamp(maxDeadline);
 
       await expect(contract.connect(client).clientClaimAfterDeadline()).to.be.revertedWith(
         "Deadline not reached"
@@ -409,6 +429,36 @@ describe("WorkContract", function () {
       expect(await escrow.isPaymentReleased()).to.equal(true);
     });
 
+    it("Should let a credited client withdraw the pending refund", async function () {
+      const { worker, hourlyRate, hoursRequired, guaranteedAmount, funding } =
+        await loadFixture(deployWorkContractFixture);
+      const RejectingPayer = await ethers.getContractFactory("RejectingPayer");
+      const payer = await RejectingPayer.deploy();
+      await payer.deploy(
+        worker.address,
+        hourlyRate,
+        hoursRequired,
+        guaranteedAmount,
+        60 * 60 * 24 * 7,
+        60 * 60 * 24 * 14,
+        { value: funding }
+      );
+      const escrow = await ethers.getContractAt("WorkContract", await payer.escrow());
+      const expectedRefund = funding - guaranteedAmount;
+
+      await escrow.connect(worker).approveCompletion();
+      await escrow.connect(worker).claimGuaranteed();
+      expect(await escrow.pendingWithdrawals(payer.target)).to.equal(expectedRefund);
+
+      await payer.acceptPayments();
+      await expect(payer.withdraw()).to.changeEtherBalances(
+        [payer, escrow],
+        [expectedRefund, -expectedRefund]
+      );
+      expect(await escrow.pendingWithdrawals(payer.target)).to.equal(0);
+      expect(await escrow.getContractBalance()).to.equal(0);
+    });
+
     it("Should credit a rejecting client on a deadline claim instead of reverting", async function () {
       const { worker, hourlyRate, hoursRequired, guaranteedAmount, funding } =
         await loadFixture(deployWorkContractFixture);
@@ -432,6 +482,130 @@ describe("WorkContract", function () {
       expect(await escrow.pendingWithdrawals(payer.target)).to.equal(funding);
       expect(await escrow.isPaymentReleased()).to.equal(true);
       expect(await escrow.getContractBalance()).to.equal(funding);
+    });
+
+    it("Should reserve a rejecting worker's guaranteed amount and allow a later withdrawal", async function () {
+      const { client, hourlyRate, hoursRequired, guaranteedAmount, funding } =
+        await loadFixture(deployWorkContractFixture);
+      const RejectingWorker = await ethers.getContractFactory("RejectingWorker");
+      const rejectingWorker = await RejectingWorker.deploy();
+      const WorkContractFactory = await ethers.getContractFactory("WorkContract");
+      const escrow = await WorkContractFactory.connect(client).deploy(
+        rejectingWorker.target,
+        hourlyRate,
+        hoursRequired,
+        guaranteedAmount,
+        60 * 60 * 24 * 7,
+        60 * 60 * 24 * 14,
+        { value: funding }
+      );
+      const expectedRefund = funding - guaranteedAmount;
+
+      await rejectingWorker.approve(escrow.target);
+      await expect(rejectingWorker.claimGuaranteed(escrow.target)).to.changeEtherBalance(
+        client,
+        expectedRefund
+      );
+
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(guaranteedAmount);
+      expect(await escrow.getContractBalance()).to.equal(guaranteedAmount);
+
+      await rejectingWorker.acceptPayments();
+      await expect(rejectingWorker.withdraw(escrow.target)).to.changeEtherBalances(
+        [rejectingWorker, escrow],
+        [guaranteedAmount, -guaranteedAmount]
+      );
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(0);
+      expect(await escrow.getContractBalance()).to.equal(0);
+    });
+
+    it("Should credit a rejecting worker on a deadline claim instead of reverting", async function () {
+      const { client, hourlyRate, hoursRequired, guaranteedAmount, funding } =
+        await loadFixture(deployWorkContractFixture);
+      const RejectingWorker = await ethers.getContractFactory("RejectingWorker");
+      const rejectingWorker = await RejectingWorker.deploy();
+      const WorkContractFactory = await ethers.getContractFactory("WorkContract");
+      const escrow = await WorkContractFactory.connect(client).deploy(
+        rejectingWorker.target,
+        hourlyRate,
+        hoursRequired,
+        guaranteedAmount,
+        60 * 60 * 24 * 7,
+        60 * 60 * 24 * 14,
+        { value: funding }
+      );
+      const [, maxDeadline] = await escrow.getDeadlines();
+      await time.increaseTo(maxDeadline + 1n);
+
+      await rejectingWorker.claimAfterDeadline(escrow.target);
+
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(funding);
+      expect(await escrow.isPaymentReleased()).to.equal(true);
+      expect(await escrow.getContractBalance()).to.equal(funding);
+    });
+
+    it("Should leave forced ETH undistributed when both parties approve", async function () {
+      const { client, worker, hourlyRate, hoursRequired, guaranteedAmount, funding } =
+        await loadFixture(deployWorkContractFixture);
+      const surplus = ethers.parseEther("0.03");
+      const forced = ethers.parseEther("1");
+      const WorkContractFactory = await ethers.getContractFactory("WorkContract");
+      const overfunded = await WorkContractFactory.connect(client).deploy(
+        worker.address,
+        hourlyRate,
+        hoursRequired,
+        guaranteedAmount,
+        60 * 60 * 24 * 7,
+        60 * 60 * 24 * 14,
+        { value: funding + surplus }
+      );
+      await setBalance(await overfunded.getAddress(), funding + surplus + forced);
+
+      await overfunded.connect(client).approveCompletion();
+      await expect(overfunded.connect(worker).approveCompletion()).to.changeEtherBalances(
+        [worker, client, overfunded],
+        [funding, surplus, -(funding + surplus)]
+      );
+      expect(await overfunded.getContractBalance()).to.equal(forced);
+    });
+
+    it("Should refund only the unreserved deposit when a rejecting worker claims guaranteed", async function () {
+      const { client, hourlyRate, hoursRequired, guaranteedAmount, funding } =
+        await loadFixture(deployWorkContractFixture);
+      const forced = ethers.parseEther("1");
+      const RejectingWorker = await ethers.getContractFactory("RejectingWorker");
+      const rejectingWorker = await RejectingWorker.deploy();
+      const WorkContractFactory = await ethers.getContractFactory("WorkContract");
+      const escrow = await WorkContractFactory.connect(client).deploy(
+        rejectingWorker.target,
+        hourlyRate,
+        hoursRequired,
+        guaranteedAmount,
+        60 * 60 * 24 * 7,
+        60 * 60 * 24 * 14,
+        { value: funding }
+      );
+      await setBalance(await escrow.getAddress(), funding + forced);
+      const expectedRefund = funding - guaranteedAmount;
+
+      await rejectingWorker.approve(escrow.target);
+      await expect(rejectingWorker.claimGuaranteed(escrow.target)).to.changeEtherBalance(
+        client,
+        expectedRefund
+      );
+
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(guaranteedAmount);
+      expect(await escrow.reservedWithdrawals()).to.equal(guaranteedAmount);
+      expect(await escrow.getContractBalance()).to.equal(guaranteedAmount + forced);
+
+      await rejectingWorker.acceptPayments();
+      await expect(rejectingWorker.withdraw(escrow.target)).to.changeEtherBalance(
+        rejectingWorker,
+        guaranteedAmount
+      );
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(0);
+      expect(await escrow.reservedWithdrawals()).to.equal(0);
+      expect(await escrow.getContractBalance()).to.equal(forced);
     });
   });
 }); 

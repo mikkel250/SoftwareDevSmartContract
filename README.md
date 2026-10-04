@@ -89,7 +89,13 @@ The frontend is ready for deployment to Netlify and includes a live demo contrac
 
 **The contract must be funded with at least** `hourlyRate * hoursRequired` **ETH.** `guaranteedAmount` cannot exceed that product. Any ETH above the contracted payment is refunded to the client when both parties approve. The worker address cannot be the deployer.
 
-Sepolia deploys read `SEPOLIA_RPC_URL` and `SEPOLIA_PRIVATE_KEY` from the environment (see `.env`, which is gitignored). Do not commit RPC keys or private keys. If a key was previously committed, revoke it in the provider dashboard.
+Sepolia deploys read `SEPOLIA_RPC_URL` and `SEPOLIA_PRIVATE_KEY` from the environment. Create a local env file, then fill in both values:
+
+```shell
+cp .env.example .env
+```
+
+`.env` is gitignored. Do not commit RPC keys or private keys. If a key was previously committed, revoke it in the provider dashboard.
 
 #### Example Hardhat Deployment
 ```shell
