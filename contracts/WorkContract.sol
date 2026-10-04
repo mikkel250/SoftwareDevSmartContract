@@ -135,13 +135,16 @@ contract WorkContract {
             emit Approval(msg.sender, false);
         }
         if (clientApproved && workerApproved && !paymentReleased) {
-            paymentReleased = true;
             uint payment = hourlyRate * hoursRequired;
+            // Deposit must cover the full payment before any subtraction.
+            // Force-fed ETH is not part of fundedAmount and cannot fill a shortfall.
+            require(fundedAmount >= payment, "Insufficient contract funding");
             uint surplus = fundedAmount - payment;
             require(
                 _unreservedBalance() >= payment + surplus,
                 "Insufficient contract balance"
             );
+            paymentReleased = true;
             _sendOrCredit(worker, payment);
             emit PaymentReleased(worker, payment);
             if (surplus > 0) {
@@ -163,6 +166,12 @@ contract WorkContract {
         require(workerApproved, "Worker has not approved");
         require(!clientApproved, "Client has already approved");
         require(!paymentReleased, "Payment already released");
+        // The recorded deposit must cover the guarantee. Force-fed ETH increases
+        // the unreserved balance and must not satisfy this check or the subtraction.
+        require(
+            fundedAmount >= guaranteedAmount,
+            "Insufficient contract balance for guaranteed payment"
+        );
         uint unreserved = _unreservedBalance();
         require(
             unreserved >= guaranteedAmount,

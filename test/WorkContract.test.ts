@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { time, loadFixture, setBalance } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { time, loadFixture, setBalance, setStorageAt } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { WorkContract } from "../typechain-types";
 
 describe("WorkContract", function () {
@@ -125,6 +125,20 @@ describe("WorkContract", function () {
       );
       expect(await overfunded.getContractBalance()).to.equal(0);
     });
+
+    it("Should reject mutual approval when the recorded deposit is below the full payment", async function () {
+      const { contract, client, worker, funding } = await loadFixture(deployWorkContractFixture);
+      const fundedSlot = 8n;
+      expect(BigInt(await ethers.provider.getStorage(contract.target, fundedSlot))).to.equal(
+        funding
+      );
+
+      await setStorageAt(await contract.getAddress(), fundedSlot, funding - 1n);
+      await contract.connect(client).approveCompletion();
+      await expect(contract.connect(worker).approveCompletion()).to.be.revertedWith(
+        "Insufficient contract funding"
+      );
+    });
   });
 
   describe("Dispute Resolution", function () {
@@ -168,6 +182,26 @@ describe("WorkContract", function () {
       await expect(contract.connect(worker).claimGuaranteed()).to.be.revertedWith(
         "Client has already approved"
       );
+    });
+
+    it("Should reject a guaranteed claim when force-fed ETH covers the balance but not the deposit", async function () {
+      const { contract, worker, guaranteedAmount, funding } = await loadFixture(
+        deployWorkContractFixture
+      );
+      const forced = ethers.parseEther("1");
+      await setBalance(await contract.getAddress(), funding + forced);
+      await setStorageAt(
+        await contract.getAddress(),
+        8n,
+        guaranteedAmount - 1n
+      );
+
+      await contract.connect(worker).approveCompletion();
+      await expect(contract.connect(worker).claimGuaranteed()).to.be.revertedWith(
+        "Insufficient contract balance for guaranteed payment"
+      );
+      expect(await contract.isPaymentReleased()).to.equal(false);
+      expect(await contract.getContractBalance()).to.equal(funding + forced);
     });
   });
 
@@ -480,8 +514,18 @@ describe("WorkContract", function () {
       await payer.claimAfterDeadline();
 
       expect(await escrow.pendingWithdrawals(payer.target)).to.equal(funding);
+      expect(await escrow.reservedWithdrawals()).to.equal(funding);
       expect(await escrow.isPaymentReleased()).to.equal(true);
       expect(await escrow.getContractBalance()).to.equal(funding);
+
+      await payer.acceptPayments();
+      await expect(payer.withdraw()).to.changeEtherBalances(
+        [payer, escrow],
+        [funding, -funding]
+      );
+      expect(await escrow.pendingWithdrawals(payer.target)).to.equal(0);
+      expect(await escrow.reservedWithdrawals()).to.equal(0);
+      expect(await escrow.getContractBalance()).to.equal(0);
     });
 
     it("Should reserve a rejecting worker's guaranteed amount and allow a later withdrawal", async function () {
@@ -540,8 +584,18 @@ describe("WorkContract", function () {
       await rejectingWorker.claimAfterDeadline(escrow.target);
 
       expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(funding);
+      expect(await escrow.reservedWithdrawals()).to.equal(funding);
       expect(await escrow.isPaymentReleased()).to.equal(true);
       expect(await escrow.getContractBalance()).to.equal(funding);
+
+      await rejectingWorker.acceptPayments();
+      await expect(rejectingWorker.withdraw(escrow.target)).to.changeEtherBalances(
+        [rejectingWorker, escrow],
+        [funding, -funding]
+      );
+      expect(await escrow.pendingWithdrawals(rejectingWorker.target)).to.equal(0);
+      expect(await escrow.reservedWithdrawals()).to.equal(0);
+      expect(await escrow.getContractBalance()).to.equal(0);
     });
 
     it("Should leave forced ETH undistributed when both parties approve", async function () {

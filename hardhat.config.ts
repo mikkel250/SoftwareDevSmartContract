@@ -3,12 +3,24 @@ import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
 dotenv.config();
 
+function networkFromArgv(): string | undefined {
+  const argv = process.argv;
+  const flagIndex = argv.indexOf("--network");
+  if (flagIndex >= 0 && argv[flagIndex + 1] && !argv[flagIndex + 1].startsWith("-")) {
+    return argv[flagIndex + 1];
+  }
+  for (const arg of argv) {
+    if (arg.startsWith("--network=")) {
+      const name = arg.slice("--network=".length);
+      return name.length > 0 ? name : undefined;
+    }
+  }
+  return undefined;
+}
+
 function sepoliaNetwork(): { url: string; accounts: string[] } | undefined {
   const url = process.env.SEPOLIA_RPC_URL?.trim();
-  const networkFlag = process.argv.indexOf("--network");
-  const selectedNetwork =
-    (networkFlag >= 0 ? process.argv[networkFlag + 1] : undefined) ||
-    process.env.HARDHAT_NETWORK;
+  const selectedNetwork = networkFromArgv() || process.env.HARDHAT_NETWORK;
 
   if (!url) {
     if (selectedNetwork === "sepolia") {
