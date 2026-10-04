@@ -40,8 +40,14 @@ contract WorkContract {
     /// @notice Whether payment has been released
     bool public paymentReleased;
 
+    /// @notice ETH deposited at deployment. This settlement does not distribute later forced transfers.
+    uint public fundedAmount;
+
     /// @notice ETH credited when a direct transfer fails, claimable via withdraw()
     mapping(address => uint) public pendingWithdrawals;
+
+    /// @notice Sum of pendingWithdrawals. These funds remain reserved until withdrawn.
+    uint public reservedWithdrawals;
 
     /// @notice Emitted when payment is released to a party
     event PaymentReleased(address indexed to, uint amount);
@@ -104,6 +110,7 @@ contract WorkContract {
             "Guaranteed exceeds full payment"
         );
 
+        fundedAmount = msg.value;
         clientApproved = false;
         workerApproved = false;
         paymentReleased = false;
@@ -128,11 +135,16 @@ contract WorkContract {
             emit Approval(msg.sender, false);
         }
         if (clientApproved && workerApproved && !paymentReleased) {
-            paymentReleased = true;
-            uint balance = address(this).balance;
             uint payment = hourlyRate * hoursRequired;
-            require(balance >= payment, "Insufficient contract balance");
-            uint surplus = balance - payment;
+            // Deposit must cover the full payment before any subtraction.
+            // Force-fed ETH is not part of fundedAmount and cannot fill a shortfall.
+            require(fundedAmount >= payment, "Insufficient contract funding");
+            uint surplus = fundedAmount - payment;
+            require(
+                _unreservedBalance() >= payment + surplus,
+                "Insufficient contract balance"
+            );
+            paymentReleased = true;
             _sendOrCredit(worker, payment);
             emit PaymentReleased(worker, payment);
             if (surplus > 0) {
@@ -154,17 +166,31 @@ contract WorkContract {
         require(workerApproved, "Worker has not approved");
         require(!clientApproved, "Client has already approved");
         require(!paymentReleased, "Payment already released");
+        // The recorded deposit must cover the guarantee. Force-fed ETH increases
+        // the unreserved balance and must not satisfy this check or the subtraction.
         require(
-            address(this).balance >= guaranteedAmount,
+            fundedAmount >= guaranteedAmount,
+            "Insufficient contract balance for guaranteed payment"
+        );
+        uint unreserved = _unreservedBalance();
+        require(
+            unreserved >= guaranteedAmount,
             "Insufficient contract balance for guaranteed payment"
         );
 
         paymentReleased = true;
 
+        // Refund only the deposit above the guarantee, and never reserved or
+        // force-fed ETH. Cap by what is still unreserved before the worker credit.
+        uint entitledRefund = fundedAmount - guaranteedAmount;
+        uint availableRefund = unreserved - guaranteedAmount;
+        uint refund = entitledRefund < availableRefund
+            ? entitledRefund
+            : availableRefund;
+
         _sendOrCredit(worker, guaranteedAmount);
         emit GuaranteedClaimed(worker, guaranteedAmount);
 
-        uint refund = address(this).balance;
         if (refund > 0) {
             _sendOrCredit(client, refund);
             emit RefundIssued(client, refund);
@@ -210,6 +236,7 @@ contract WorkContract {
         uint amount = pendingWithdrawals[msg.sender];
         require(amount > 0, "Nothing to withdraw");
         pendingWithdrawals[msg.sender] = 0;
+        reservedWithdrawals -= amount;
         (bool sent, ) = payable(msg.sender).call{value: amount}("");
         require(sent, "Withdraw failed");
         emit Withdrawal(msg.sender, amount);
@@ -226,7 +253,15 @@ contract WorkContract {
         (bool sent, ) = to.call{value: amount}("");
         if (!sent) {
             pendingWithdrawals[to] += amount;
+            reservedWithdrawals += amount;
         }
+    }
+
+    /**
+     * @dev Balance that is not already owed through pendingWithdrawals.
+     */
+    function _unreservedBalance() internal view returns (uint) {
+        return address(this).balance - reservedWithdrawals;
     }
 
     /**
