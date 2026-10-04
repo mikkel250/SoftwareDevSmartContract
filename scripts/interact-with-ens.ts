@@ -98,9 +98,9 @@ async function main() {
   let workerAddress = await resolveENSName(workerENS);
   
   if (!workerAddress) {
-    // Fallback to a generated address if ENS resolution fails
-    workerAddress = ethers.Wallet.createRandom().address;
-    console.log(`ENS name ${workerENS} not found, using fallback address: ${workerAddress}`);
+    throw new Error(
+      `ENS name ${workerENS} could not be resolved; aborting before deploy`
+    );
   } else {
     console.log(`Using ENS name ${workerENS} (${workerAddress}) for worker`);
   }

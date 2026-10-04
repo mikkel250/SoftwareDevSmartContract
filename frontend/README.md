@@ -61,19 +61,20 @@ npx hardhat run scripts/deploy.ts --network sepolia
 
 ## Supported Networks
 
-- **Sepolia Testnet**: Live demo contract at `0xB6E491Bef909d13bBe5FA5539f58B4D1DA784D5F`
+- **Sepolia Testnet**: Live demo contract at `0xAE39f19fd7377ec2389E459060955E86515F9d19`
 - **Localhost**: Hardhat local development network
 - **Mainnet**: Ethereum mainnet
 - **Other Networks**: Configure in hardhat.config.ts
 
 ## Demo Contract Details
 
-The default contract address (`0xB6E491Bef909d13bBe5FA5539f58B4D1DA784D5F`) is deployed on Sepolia testnet with:
+The default contract address (`0xAE39f19fd7377ec2389E459060955E86515F9d19`) is deployed on Sepolia testnet with:
 - **Client**: `0xA36e3C733D46911fbFAF7f6c50b9dDf8963E95D0`
-- **Worker**: `0x70997970C51812dc3A010C7d01b50e0d17dc79C8`
-- **Hourly Rate**: 0.01 ETH
-- **Hours Required**: 100 hours
-- **Contract Value**: 1.0 ETH
+- **Worker**: `0x3cf8EA9C90559982824de436D25EB98f55d646A4`
+- **Hourly Rate**: 0.001 ETH
+- **Hours Required**: 2 hours
+- **Guaranteed Amount**: 0.001 ETH
+- **Contract Value**: 0.002 ETH
 
 To interact with this contract, switch MetaMask to Sepolia testnet and get free Sepolia ETH from a faucet.
 

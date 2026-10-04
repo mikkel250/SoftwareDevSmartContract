@@ -24,6 +24,7 @@ async function main() {
     { value: hourlyRate * BigInt(hoursRequired) } // initial funding
   );
 
+  await contract.waitForDeployment();
   console.log("WorkContract deployed to:", contract.target);
 }
 

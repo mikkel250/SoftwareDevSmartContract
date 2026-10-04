@@ -87,40 +87,39 @@ The frontend is ready for deployment to Netlify and includes a live demo contrac
 - `uint _idealDuration`: Ideal completion duration (in seconds)
 - `uint _maxDuration`: Maximum allowed completion duration (in seconds)
 
-**The contract must be funded with at least** `hourlyRate * hoursRequired` **ETH.**
+**The contract must be funded with at least** `hourlyRate * hoursRequired` **ETH.** `guaranteedAmount` cannot exceed that product. Any ETH above the contracted payment is refunded to the client when both parties approve. The worker address cannot be the deployer.
+
+Sepolia deploys read `SEPOLIA_RPC_URL` and `SEPOLIA_PRIVATE_KEY` from the environment (see `.env`, which is gitignored). Do not commit RPC keys or private keys. If a key was previously committed, revoke it in the provider dashboard.
 
 #### Example Hardhat Deployment
 ```shell
 npx hardhat compile
-npx hardhat run scripts/deploy.js --network <network>
+npx hardhat run scripts/deploy.ts --network sepolia
 ```
-Example `deploy.js`:
-```js
-async function main() {
-  const [deployer] = await ethers.getSigners();
-  const WorkContract = await ethers.getContractFactory("WorkContract");
-  const contract = await WorkContract.deploy(
-    "0xWorkerAddress", // worker
-    ethers.utils.parseEther("0.01"), // hourlyRate (0.01 ETH)
-    100, // hoursRequired
-    ethers.utils.parseEther("0.5"), // guaranteedAmount (0.5 ETH)
-    60 * 60 * 24 * 7, // idealDuration (1 week)
-    60 * 60 * 24 * 14, // maxDuration (2 weeks)
-    { value: ethers.utils.parseEther("1.0") } // funding (1 ETH)
-  );
-  await contract.deployed();
-  console.log("WorkContract deployed to:", contract.address);
-}
-main();
+Or `npm run deploy` against the default network. `scripts/deploy.ts` uses ethers v6:
+
+```ts
+const contract = await WorkContract.deploy(
+  workerAddress,
+  ethers.parseEther("0.001"),
+  2,
+  ethers.parseEther("0.001"),
+  3600,
+  7200,
+  { value: ethers.parseEther("0.002") }
+);
+await contract.waitForDeployment();
+console.log("WorkContract deployed to:", contract.target);
 ```
 
 ### 3. Interaction Guide
 
 #### Public Functions
-- `approveCompletion()`: Called by client or worker to approve completion. When both approve, payment is released to the worker.
-- `claimGuaranteed()`: Called by the worker if full approval is not reached. Worker receives the guaranteed amount, client is refunded the rest.
-- `workerClaimAfterDeadline()`: Worker claims all funds after `maxDeadline` if client has not approved.
-- `clientClaimAfterDeadline()`: Client claims all funds after `maxDeadline` if worker has not approved.
+- `approveCompletion()`: Called by client or worker to approve completion. When both approve, the contracted payment is sent to the worker and any surplus funding is refunded to the client.
+- `claimGuaranteed()`: Called by the worker after the worker has approved and the client has not. Worker receives the guaranteed amount, client is refunded the rest.
+- `workerClaimAfterDeadline()`: Worker claims all funds after `maxDeadline` if the client has not approved.
+- `clientClaimAfterDeadline()`: Client claims all funds after `maxDeadline` if the worker has not approved.
+- `withdraw()`: Pulls ETH that was credited to the caller because a direct transfer was rejected.
 - `getContractBalance()`: Returns contract's ether balance.
 - `getApprovalStatus()`: Returns approval status of client and worker.
 - `isPaymentReleased()`: Returns whether payment has been released.
@@ -143,14 +142,14 @@ const [ideal, max] = await contract.getDeadlines();
 2. **Work Period**: Worker performs the agreed work.
 3. **Approval**:
    - Both client and worker call `approveCompletion()` when satisfied.
-   - If both approve, full payment is released to the worker.
-   - If only the worker approves, they may call `claimGuaranteed()` to receive the guaranteed amount; the client is refunded the remainder.
+   - If both approve, the contracted payment (`hourlyRate * hoursRequired`) is released to the worker. Extra funding is refunded to the client.
+   - If only the worker approves, they may call `claimGuaranteed()` to receive the guaranteed amount; the client is refunded the remainder. The worker must approve first, and the client must not have approved.
 4. **Timeouts**:
    - If the client does not approve by `maxDeadline`, the worker can call `workerClaimAfterDeadline()` to claim all funds.
    - If the worker does not approve by `maxDeadline`, the client can call `clientClaimAfterDeadline()` to reclaim all funds.
 
 ### 5. Dispute & Timeout Handling
-- **Disputes**: If both parties do not approve, the worker can claim the guaranteed amount (`claimGuaranteed()`), and the client is refunded the rest.
-- **Timeouts**: After `maxDeadline`, if only one party has approved, the non-approving party can claim all funds using the appropriate function (`workerClaimAfterDeadline()` or `clientClaimAfterDeadline()`).
+- **Disputes**: After the worker approves and the client does not, the worker can claim the guaranteed amount (`claimGuaranteed()`), and the client is refunded the rest.
+- **Timeouts**: After `maxDeadline`, `workerClaimAfterDeadline()` pays the worker when the client has not approved. `clientClaimAfterDeadline()` pays the client when the worker has not approved. The party who already approved is the one who can claim; the other party's approval blocks that claim.
 
 ---
