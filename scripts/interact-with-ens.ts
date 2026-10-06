@@ -90,42 +90,7 @@ async function main() {
     }
   }
 
-  // Demonstrate using ENS in contract deployment
-  console.log("\n=== Using ENS in Contract Deployment ===");
-  
-  // Example: Use ENS name instead of hardcoded address
-  const workerENS = "worker.eth"; // This would be a real ENS name
-  let workerAddress = await resolveENSName(workerENS);
-  
-  if (!workerAddress) {
-    throw new Error(
-      `ENS name ${workerENS} could not be resolved; aborting before deploy`
-    );
-  } else {
-    console.log(`Using ENS name ${workerENS} (${workerAddress}) for worker`);
-  }
-  
-  try {
-    // Deploy contract using ENS-resolved or fallback address
-    const WorkContract = await ethers.getContractFactory("WorkContract");
-    const contract = await WorkContract.deploy(
-      workerAddress,
-      ethers.parseEther("0.001"),
-      2,
-      ethers.parseEther("0.001"),
-      3600,
-      7200,
-      { value: ethers.parseEther("0.002") }
-    );
-    
-    await contract.waitForDeployment();
-    console.log(`Contract deployed successfully to: ${contract.target}`);
-    console.log(`   Worker address: ${workerAddress}`);
-  } catch (error: any) {
-    console.log(`Contract deployment failed: ${error.message}`);
-  }
-
-  // Demonstrate checking contract balance and transaction history
+  // Demonstrate checking chain state after resolution
   console.log("\n=== Onchain Activity Examples ===");
   
   try {
@@ -149,7 +114,6 @@ async function main() {
     console.log(`This demonstrates:`);
     console.log(`   - ENS name resolution (${network.chainId === 31337n ? 'mock data' : 'real ENS'})`);
     console.log(`   - Reverse ENS lookup`);
-    console.log(`   - Contract deployment with ENS addresses`);
     console.log(`   - Network detection and hybrid functionality`);
     console.log(`   - Onchain activity monitoring`);
     

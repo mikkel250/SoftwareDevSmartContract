@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "npx hardhat test",
-    "test:contract": "npx hardhat test test/WorkContract.test.ts",
+    "test:contract": "npx hardhat test test/MilestoneProject.test.ts",
     "compile": "npx hardhat compile",
     "deploy": "npx hardhat run scripts/deploy.ts",
     "ens-demo": "npx hardhat run scripts/interact-with-ens.ts",

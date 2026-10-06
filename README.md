@@ -1,161 +1,55 @@
-# Sample Hardhat Project
+# Milestone payments
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+A developer and a client who already agreed on the work use this app to pay for one project in crypto. The client locks a non-refundable start fee, then locks one milestone at a time. Accepting a delivery pays the developer immediately. If the client does nothing before the review window ends, the developer is paid. A rejection in time returns that milestone and stops the project.
 
-Try running some of the following tasks:
+## Roles
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.ts
-```
+- **Developer.** Sets up the project, builds a milestone only after it is locked, and marks it delivered.
+- **Client.** Funds the deposit and each milestone, and accepts or rejects a delivery.
 
----
+Scope and what each milestone means are agreed before anyone marks a milestone delivered. The app does not judge the work.
 
-## Enhanced Features for Crypto-Forward Experience
+## Payments
 
-This project now includes comprehensive blockchain interaction capabilities:
+One project uses one asset: ETH, WBTC, USDT, USDC, or USDS. Amounts are quantities of that asset. They are not repriced if the dollar value moves. USDT, USDC, and USDS are the way to keep a dollar amount stable.
 
-### ENS (Ethereum Name Service) Integration
-- **ENS Resolution**: Resolve human-readable names to Ethereum addresses
-- **Reverse Lookup**: Convert addresses back to ENS names
-- **Contract Deployment with ENS**: Use ENS names instead of hardcoded addresses
+The deposit is paid to the developer when the client locks the project, and it is never returned. It is on top of the milestone amounts. Each milestone is locked before that work starts. The next milestone can be funded only after the previous one is paid.
 
-### Onchain Activity Monitoring
-- **Transaction History**: Monitor recent blocks and transactions
-- **Contract State Tracking**: Real-time monitoring of contract balances and status
-- **Event Listening**: Listen for contract events and state changes
-- **Gas Estimation**: Optimize transaction costs
+Either party can change an unlocked amount. If the client changes the terms, the developer confirms that version before the client can fund.
 
-### dApp Frontend Interface
-- **Web3 Wallet Integration**: Connect MetaMask and other Web3 wallets
-- **Interactive Contract Management**: Deploy and interact with contracts through UI
-- **Real-time Blockchain Data**: Display network information and account balances
-- **User-friendly ENS Resolution**: Resolve ENS names directly in the browser
+## Review windows
 
-### Comprehensive Testing
-- **Full Contract Test Suite**: Complete coverage of all contract functions
-- **Multi-signature Testing**: Test approval workflows and dispute resolution
-- **Timeout Handling**: Test deadline-based claim mechanisms
-- **Security Testing**: Access control and authorization tests
+Each milestone has its own review duration, set before it is locked. The window starts when the developer marks the milestone delivered.
 
-### New Scripts and Tools
-- `scripts/interact-with-ens.ts` - ENS resolution and integration examples
-- `scripts/onchain-activity.ts` - Comprehensive blockchain interaction demo
-- `test/WorkContract.test.ts` - Complete test suite for the smart contract
-- `frontend/index.html` - Interactive dApp interface
+- The client can accept or reject until the window ends.
+- Accepting pays the developer then.
+- If the window ends with no rejection, the developer is paid.
+- A rejection returns that milestone to the client and stops the project. The developer keeps the deposit and every milestone already paid.
 
-# Run ENS integration demo
-`npm run ens-demo`
+## Local development
 
-# Run comprehensive onchain activity demo  
-`npm run onchain-demo`
-
-# Run full test suite
-`npm run test:contract`
-
-# Start local web server and open dApp
-`npm run start-frontend`
-
-# Or manually start server and open browser
-`python3 -m http.server 8080 --directory frontend`
-`open http://localhost:8080`
-
-# Deploy to Netlify
-The frontend is ready for deployment to Netlify and includes a live demo contract on Sepolia testnet. Simply connect your repository and Netlify will automatically deploy from the `frontend` directory.
-
-**Live Demo Contract**: `0xAE39f19fd7377ec2389E459060955E86515F9d19` (Sepolia)
-
-**Note**: The dApp must be served via HTTP/HTTPS (not file://) for MetaMask to recognize it as a legitimate Web3 application.
----
-
-## WorkContract: Deployment & Usage Guide
-
-### 1. Contract Summary
-
-`WorkContract` is a smart contract for managing work agreements, approvals, deadlines, and payments between a client and a worker. It acts as an escrow, ensuring fair payment and dispute resolution.
-
-### 2. Deployment Instructions
-
-#### Constructor Parameters
-- `address payable _worker`: Address of the worker
-- `uint _hourlyRate`: Hourly rate for the work (in wei)
-- `uint _hoursRequired`: Number of hours required
-- `uint _guaranteedAmount`: Minimum payment guaranteed to the worker (in wei)
-- `uint _idealDuration`: Ideal completion duration (in seconds)
-- `uint _maxDuration`: Maximum allowed completion duration (in seconds)
-
-**The contract must be funded with at least** `hourlyRate * hoursRequired` **ETH.** `guaranteedAmount` cannot exceed that product. Any ETH above the contracted payment is refunded to the client when both parties approve. The worker address cannot be the deployer.
-
-Sepolia deploys read `SEPOLIA_RPC_URL` and `SEPOLIA_PRIVATE_KEY` from the environment. Create a local env file, then fill in both values:
-
-```shell
-cp .env.example .env
-```
-
-`.env` is gitignored. Do not commit RPC keys or private keys. If a key was previously committed, revoke it in the provider dashboard.
-
-#### Example Hardhat Deployment
-```shell
+```bash
+npm install
 npx hardhat compile
-npx hardhat run scripts/deploy.ts --network sepolia
-```
-Or `npm run deploy` against the default network. `scripts/deploy.ts` uses ethers v6:
-
-```ts
-const contract = await WorkContract.deploy(
-  workerAddress,
-  ethers.parseEther("0.001"),
-  2,
-  ethers.parseEther("0.001"),
-  3600,
-  7200,
-  { value: ethers.parseEther("0.002") }
-);
-await contract.waitForDeployment();
-console.log("WorkContract deployed to:", contract.target);
+npx hardhat test
+npx hardhat node
+npx hardhat run scripts/deploy.ts --network localhost
+npm run start-frontend
 ```
 
-### 3. Interaction Guide
+`scripts/mint-mock-tokens.ts` mints the local mock tokens to addresses you pass. It refuses to run on mainnet.
 
-#### Public Functions
-- `approveCompletion()`: Called by client or worker to approve completion. When both approve, the contracted payment is sent to the worker and any surplus funding is refunded to the client.
-- `claimGuaranteed()`: Called by the worker after the worker has approved and the client has not. Worker receives the guaranteed amount, client is refunded the rest.
-- `workerClaimAfterDeadline()`: Worker claims all funds after `maxDeadline` if the client has not approved.
-- `clientClaimAfterDeadline()`: Client claims all funds after `maxDeadline` if the worker has not approved.
-- `withdraw()`: Pulls ETH that was credited to the caller because a direct transfer was rejected.
-- `getContractBalance()`: Returns contract's ether balance.
-- `getApprovalStatus()`: Returns approval status of client and worker.
-- `isPaymentReleased()`: Returns whether payment has been released.
-- `getDeadlines()`: Returns the ideal and max deadlines.
+## Networks
 
-#### Example Calls (using ethers.js)
-```js
-await contract.approveCompletion();
-await contract.claimGuaranteed();
-await contract.workerClaimAfterDeadline();
-await contract.clientClaimAfterDeadline();
-const balance = await contract.getContractBalance();
-const [clientApproved, workerApproved] = await contract.getApprovalStatus();
-const released = await contract.isPaymentReleased();
-const [ideal, max] = await contract.getDeadlines();
-```
+- **Localhost (31337).** `scripts/deploy.ts` deploys mock tokens and the factory, and writes `frontend/deployments.json`.
+- **Sepolia.** The same script deploys mocks and the factory. Record the factory in `deployments.md`, then commit `frontend/deployments.json` without the `31337` entry so the published page can find the factory.
+- **Mainnet.** Set `MAINNET_RPC_URL`. Run `CHECK_ONLY=true npx hardhat run scripts/deploy.ts --network mainnet` first. That checks each token's symbol and decimals and deploys nothing. Deploy only after the check passes.
 
-### 4. Workflow: Client & Worker
-1. **Deployment**: Client deploys and funds the contract, specifying all parameters.
-2. **Work Period**: Worker performs the agreed work.
-3. **Approval**:
-   - Both client and worker call `approveCompletion()` when satisfied.
-   - If both approve, the contracted payment (`hourlyRate * hoursRequired`) is released to the worker. Extra funding is refunded to the client.
-   - If only the worker approves, they may call `claimGuaranteed()` to receive the guaranteed amount; the client is refunded the remainder. The worker must approve first, and the client must not have approved.
-4. **Timeouts**:
-   - If the client does not approve by `maxDeadline`, the worker can call `workerClaimAfterDeadline()` to claim all funds.
-   - If the worker does not approve by `maxDeadline`, the client can call `clientClaimAfterDeadline()` to reclaim all funds.
+The page must be served over HTTP or HTTPS for the wallet to connect.
 
-### 5. Dispute & Timeout Handling
-- **Disputes**: After the worker approves and the client does not, the worker can claim the guaranteed amount (`claimGuaranteed()`), and the client is refunded the rest.
-- **Timeouts**: After `maxDeadline`, `workerClaimAfterDeadline()` pays the worker when the client has not approved. `clientClaimAfterDeadline()` pays the client when the worker has not approved. The party who already approved is the one who can claim; the other party's approval blocks that claim.
+## Scripts
 
----
+- `npm test` runs the Hardhat suite.
+- `npm run test:contract` runs the milestone project tests.
+- `npm run ens-demo` and `npm run onchain-demo` resolve ENS names and read chain data.
+- `npm run start-frontend` serves `frontend/` on port 8080.
