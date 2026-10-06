@@ -45,7 +45,7 @@ describe("milestoneMath", function () {
       ];
       for (const [total, count] of cases) {
         const amounts = MilestoneMath.evenSplit(total, count);
-        const sum = amounts.reduce((a, b) => a + b, 0n);
+        const sum = amounts.reduce((a: bigint, b: bigint) => a + b, 0n);
         expect(sum).to.equal(total);
       }
     });

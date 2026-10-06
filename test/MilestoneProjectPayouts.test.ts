@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time, loadFixture, setBalance } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import type { Interface } from "ethers";
 import type { MilestoneProject, TestReceiver } from "../typechain-types";
 
 const DAY = 24n * 60n * 60n;
@@ -16,7 +17,8 @@ function via(
   args: unknown[],
   value = 0n
 ) {
-  return receiver.execute(project.target, value, project.interface.encodeFunctionData(fn, args), { value });
+  const data = (project.interface as Interface).encodeFunctionData(fn, args);
+  return receiver.execute(project.target, value, data, { value });
 }
 
 async function deployProject(developer: string, client: string, asset: string, deposit: bigint, amounts: bigint[]) {
@@ -282,7 +284,7 @@ describe("MilestoneProject payouts", function () {
         amount,
       ]);
       await project.connect(client).startLock(deposit, amount, 2n * DAY, { value: deposit + amount });
-      await devReceiver.setReentry(project.target, project.interface.encodeFunctionData("withdraw", []));
+      await devReceiver.setReentry(project.target, project.interface.encodeFunctionData("withdraw"));
       await devReceiver.setMode(ReceiverMode.Reenter);
 
       await expect(via(devReceiver, project, "withdraw", [])).to.be.revertedWithCustomError(project, "WithdrawFailed");
