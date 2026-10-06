@@ -10,6 +10,7 @@ contract MockNoReturnERC20 {
 
     mapping(address account => uint256) public balanceOf;
     mapping(address account => mapping(address spender => uint256)) public allowance;
+    mapping(address account => bool) public frozen;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -24,6 +25,10 @@ contract MockNoReturnERC20 {
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
+    }
+
+    function setFrozen(address account, bool frozen_) external {
+        frozen[account] = frozen_;
     }
 
     function approve(address spender, uint256 amount) external {
@@ -49,6 +54,9 @@ contract MockNoReturnERC20 {
     }
 
     function _transfer(address from, address to, uint256 amount) internal {
+        if (frozen[from] || frozen[to]) {
+            revert("MockNoReturnERC20: frozen");
+        }
         uint256 fromBalance = balanceOf[from];
         if (fromBalance < amount) {
             revert("MockNoReturnERC20: insufficient balance");

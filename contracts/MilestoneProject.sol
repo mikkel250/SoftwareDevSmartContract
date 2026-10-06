@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title MilestoneProject
@@ -11,9 +12,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * Each later milestone is funded only after the previous one is paid. A delivered milestone is
  * paid on acceptance or when its review window ends, and a rejection inside the window returns
  * it to the client and stops the project.
- * @dev `asset` is the zero address for native ETH. Payouts only ever use stored amounts.
+ * @dev `asset` is the zero address for native ETH. Payouts only ever use stored amounts, so ETH or
+ * tokens sent to the contract directly are never paid out. A payout that cannot be pushed is
+ * credited to `owed` and pulled later with `withdraw`.
  */
-contract MilestoneProject {
+contract MilestoneProject is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     enum ProjectStatus {
@@ -70,6 +73,9 @@ contract MilestoneProject {
 
     Milestone[] private _milestones;
 
+    /// @notice Payouts that could not be pushed, claimable with withdraw().
+    mapping(address => uint256) public owed;
+
     event DepositEdited(address indexed by, uint256 deposit, uint256 termsVersion);
     event MilestoneEdited(
         uint256 indexed index,
@@ -87,6 +93,8 @@ contract MilestoneProject {
     event MilestoneRejected(uint256 indexed index);
     event ProjectCompleted();
     event PaymentSent(address indexed to, uint256 amount);
+    event PaymentCredited(address indexed to, uint256 amount);
+    event Withdrawal(address indexed to, uint256 amount);
 
     error NotClient();
     error NotDeveloper();
@@ -107,7 +115,9 @@ contract MilestoneProject {
     error WrongValue();
     error ReviewClosed();
     error ReviewOpen();
-    error TransferFailed();
+    error IncompleteReceipt();
+    error NothingOwed();
+    error WithdrawFailed();
 
     modifier onlyClient() {
         if (msg.sender != client) revert NotClient();
@@ -173,7 +183,7 @@ contract MilestoneProject {
     // ---------------------------------------------------------------------
 
     /// @notice Change the deposit. Allowed for either party before the start lock.
-    function editDeposit(uint256 newDeposit) external onlyParty {
+    function editDeposit(uint256 newDeposit) external nonReentrant onlyParty {
         if (status != ProjectStatus.Setup) revert WrongProjectStatus();
         if (newDeposit == 0) revert InvalidAmount();
         deposit = newDeposit;
@@ -181,7 +191,7 @@ contract MilestoneProject {
     }
 
     /// @notice Change an unfunded milestone's amount and review window.
-    function editMilestone(uint256 index, uint256 amount, uint256 reviewWindow) external onlyParty {
+    function editMilestone(uint256 index, uint256 amount, uint256 reviewWindow) external nonReentrant onlyParty {
         _requireOpen();
         Milestone storage m = _milestone(index);
         if (m.status != MilestoneStatus.Unfunded) revert WrongMilestoneStatus();
@@ -192,7 +202,7 @@ contract MilestoneProject {
     }
 
     /// @notice Developer confirms the client's edits, given the version the developer reviewed.
-    function confirmTerms(uint256 version) external onlyDeveloper {
+    function confirmTerms(uint256 version) external nonReentrant onlyDeveloper {
         _requireOpen();
         if (version != termsVersion) revert StaleVersion();
         confirmedVersion = version;
@@ -213,7 +223,7 @@ contract MilestoneProject {
         uint256 expectedDeposit,
         uint256 expectedAmount,
         uint256 expectedWindow
-    ) external payable onlyClient {
+    ) external payable nonReentrant onlyClient {
         if (status != ProjectStatus.Setup) revert WrongProjectStatus();
         Milestone storage m = _milestones[0];
         if (deposit != expectedDeposit) revert TermsChanged();
@@ -235,7 +245,7 @@ contract MilestoneProject {
         uint256 index,
         uint256 expectedAmount,
         uint256 expectedWindow
-    ) external payable onlyClient {
+    ) external payable nonReentrant onlyClient {
         if (status != ProjectStatus.Active) revert WrongProjectStatus();
         Milestone storage m = _milestone(index);
         if (index == 0 || m.status != MilestoneStatus.Unfunded) revert WrongMilestoneStatus();
@@ -255,7 +265,7 @@ contract MilestoneProject {
     // ---------------------------------------------------------------------
 
     /// @notice Developer marks a funded milestone delivered, which starts its review window.
-    function markDelivered(uint256 index) external onlyDeveloper {
+    function markDelivered(uint256 index) external nonReentrant onlyDeveloper {
         if (status != ProjectStatus.Active) revert WrongProjectStatus();
         Milestone storage m = _milestone(index);
         if (m.status != MilestoneStatus.Funded) revert WrongMilestoneStatus();
@@ -265,7 +275,7 @@ contract MilestoneProject {
     }
 
     /// @notice Client accepts a delivered milestone before its review window ends.
-    function accept(uint256 index) external onlyClient {
+    function accept(uint256 index) external nonReentrant onlyClient {
         Milestone storage m = _deliveredMilestone(index);
         if (block.timestamp >= _reviewEnd(m)) revert ReviewClosed();
         emit MilestoneAccepted(index);
@@ -274,7 +284,7 @@ contract MilestoneProject {
 
     /// @notice Client rejects a delivered milestone before its review window ends. The milestone
     /// returns to the client and the project stops.
-    function reject(uint256 index) external onlyClient {
+    function reject(uint256 index) external nonReentrant onlyClient {
         Milestone storage m = _deliveredMilestone(index);
         if (block.timestamp >= _reviewEnd(m)) revert ReviewClosed();
         m.status = MilestoneStatus.Returned;
@@ -284,11 +294,24 @@ contract MilestoneProject {
     }
 
     /// @notice Anyone can pay the developer once a delivered milestone's review window has ended.
-    function release(uint256 index) external {
+    function release(uint256 index) external nonReentrant {
         Milestone storage m = _deliveredMilestone(index);
         if (block.timestamp < _reviewEnd(m)) revert ReviewOpen();
         emit MilestoneReleased(index, msg.sender);
         _payMilestone(index, m);
+    }
+
+    /// @notice Pull a payout that could not be pushed earlier. Reverts if the transfer fails.
+    function withdraw() external nonReentrant {
+        uint256 amount = owed[msg.sender];
+        if (amount == 0) revert NothingOwed();
+        owed[msg.sender] = 0;
+        if (asset == address(0)) {
+            if (!_sendEth(msg.sender, amount)) revert WithdrawFailed();
+        } else {
+            IERC20(asset).safeTransfer(msg.sender, amount);
+        }
+        emit Withdrawal(msg.sender, amount);
     }
 
     // ---------------------------------------------------------------------
@@ -377,16 +400,29 @@ contract MilestoneProject {
             return;
         }
         if (msg.value != 0) revert WrongValue();
-        IERC20(asset).safeTransferFrom(client, address(this), amount);
+        IERC20 token = IERC20(asset);
+        // The before-and-after balance is the only balance read, and it rejects fee-on-transfer.
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(client, address(this), amount);
+        if (token.balanceOf(address(this)) - balanceBefore != amount) revert IncompleteReceipt();
     }
 
+    /// @dev Push `amount` to `to`, or credit it to `owed` if the push fails, so a reverting or
+    /// frozen recipient cannot block the other party's settlement.
     function _pay(address to, uint256 amount) internal {
-        if (asset == address(0)) {
-            (bool sent, ) = payable(to).call{value: amount}("");
-            if (!sent) revert TransferFailed();
+        bool sent = asset == address(0) ? _sendEth(to, amount) : IERC20(asset).trySafeTransfer(to, amount);
+        if (sent) {
+            emit PaymentSent(to, amount);
         } else {
-            IERC20(asset).safeTransfer(to, amount);
+            owed[to] += amount;
+            emit PaymentCredited(to, amount);
         }
-        emit PaymentSent(to, amount);
+    }
+
+    /// @dev Value call that copies no return data, so a recipient cannot grief with a large revert payload.
+    function _sendEth(address to, uint256 amount) internal returns (bool sent) {
+        assembly {
+            sent := call(gas(), to, amount, 0, 0, 0, 0)
+        }
     }
 }
