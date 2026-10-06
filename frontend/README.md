@@ -1,108 +1,34 @@
-# WorkContract dApp Frontend
+# Milestone payments dApp
 
-A decentralized application (dApp) frontend for interacting with WorkContract smart contracts.
+A static page for a developer and a client to create a project, lock a start-fee deposit and one milestone at a time, and review each delivery.
 
 ## Features
 
-- **Wallet Integration**: Connect MetaMask and other Web3 wallets
-- **ENS Resolution**: Resolve Ethereum Name Service addresses
-- **Contract Interaction**: Deploy and interact with WorkContract instances
-- **Real-time Data**: View blockchain information and contract states
-- **Cross-browser Support**: Works with Chrome, Firefox, Brave, and other modern browsers
+- Connect a wallet and resolve ENS names
+- Create a project in ETH, WBTC, USDT, USDC, or USDS
+- Fund, deliver, accept, reject, or withdraw a credited payout
+- List the projects for the connected account
 
-## Quick Start
+## Local use
 
-### Local Development
-
-1. **Start Local Server**:
-   ```bash
-   python3 -m http.server 8080 --directory .
-   open http://localhost:8080
-   ```
-
-2. **Connect Wallet**: Click "Connect Wallet" and approve the connection
-
-3. **Test Contract**: Use the pre-filled demo contract address or deploy your own
-
-## Browser Configuration
-
-### Brave Browser Users
-
-Brave has a built-in wallet that may conflict with MetaMask:
-
-1. Go to `brave://settings/web3`
-2. Set "Default Ethereum wallet" to **"Extensions"**
-3. Restart Brave browser
-
-### MetaMask Setup
-
-1. Install [MetaMask Extension](https://metamask.io/download/)
-2. Create or import a wallet
-3. Connect to your desired network (Mainnet, use Sepolia for testing)
-
-## Smart Contract Deployment
-
-To deploy your own WorkContract:
+From the repo root, deploy the factory to a local node, then serve this directory:
 
 ```bash
-# Install dependencies
-npm install
-
-# Compile contracts
-npx hardhat compile
-
-# Deploy to local network
 npx hardhat node
 npx hardhat run scripts/deploy.ts --network localhost
-
-# Deploy to testnet (configure network in hardhat.config.ts)
-npx hardhat run scripts/deploy.ts --network sepolia
+python3 -m http.server 8080 --directory frontend
 ```
 
-## Supported Networks
+Open `http://localhost:8080`, connect a wallet on chain 31337, and use the factory address written into `deployments.json`.
 
-- **Sepolia Testnet**: Live demo contract at `0xAE39f19fd7377ec2389E459060955E86515F9d19`
-- **Localhost**: Hardhat local development network
-- **Mainnet**: Ethereum mainnet
-- **Other Networks**: Configure in hardhat.config.ts
+The page must be served over HTTP or HTTPS. MetaMask does not treat a `file://` page as a Web3 app.
 
-## Demo Contract Details
+## Networks
 
-The default contract address (`0xAE39f19fd7377ec2389E459060955E86515F9d19`) is deployed on Sepolia testnet with:
-- **Client**: `0xA36e3C733D46911fbFAF7f6c50b9dDf8963E95D0`
-- **Worker**: `0x3cf8EA9C90559982824de436D25EB98f55d646A4`
-- **Hourly Rate**: 0.001 ETH
-- **Hours Required**: 2 hours
-- **Guaranteed Amount**: 0.001 ETH
-- **Contract Value**: 0.002 ETH
+`deployments.json` lists each chain. An entry with no factory address shows the asset metadata and no project actions. Switch the wallet to a chain that has a factory.
 
-To interact with this contract, switch MetaMask to Sepolia testnet and get free Sepolia ETH from a faucet.
+## Wallet notes
 
-## Security Notes
+Brave can prefer its built-in wallet. Set `brave://settings/web3` so the default Ethereum wallet is Extensions, then restart Brave.
 
-- Never share your private keys or seed phrases
-- Always verify contract addresses before interacting
-- Test on testnets before using mainnet
-- This dApp requires HTTPS or localhost for security
-
-## Troubleshooting
-
-### Wallet Not Connecting
-- Ensure MetaMask is installed and unlocked
-- Check browser console for errors
-- Try refreshing the page
-- For Brave: Configure wallet settings as described above
-
-### Contract Interaction Fails
-- Verify contract address is correct
-- Ensure wallet is connected to the right network
-- Check you have sufficient ETH for gas fees
-- Confirm the contract is deployed on the current network
-
-## Support
-
-For issues and questions:
-- Check the browser console for error messages
-- Verify network configuration
-- Ensure latest browser version
-- Review MetaMask connection status 
+Never share a seed phrase. Confirm the factory address and the developer address before locking funds.

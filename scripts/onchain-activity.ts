@@ -96,164 +96,22 @@ async function main() {
     }
   }
 
-  // 4. Contract Deployment with ENS
-  console.log("\n=== Contract Deployment with ENS ===");
-  
-  // Use ENS name for worker (with hybrid resolution)
-  const workerENS = "worker.eth"; // This would be a real ENS name
-  let workerAddress: string | null = null;
-  
-  if (network.chainId === 31337n) {
-    // Local network - use mock data (add worker.eth to our mappings)
-    const localMockMappings = {
-      ...MOCK_ENS_MAPPINGS,
-      "worker.eth": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-    };
-    workerAddress = localMockMappings[workerENS.toLowerCase()] || null;
-    if (workerAddress) {
-      console.log(`Using mock ENS name ${workerENS} (${workerAddress}) for worker`);
-    }
-  } else {
-    // Real network - try actual ENS resolution
-    try {
-      workerAddress = await ethers.provider.resolveName(workerENS);
-      if (workerAddress) {
-        console.log(`Using real ENS name ${workerENS} (${workerAddress}) for worker`);
-      }
-    } catch (error: any) {
-      console.log(`ENS resolution failed: ${error.message}`);
-    }
-  }
-  
-  if (!workerAddress) {
-    throw new Error(
-      `ENS name ${workerENS} could not be resolved; aborting before deploy`
-    );
-  }
-
-  // Deploy contract
-  const WorkContract = await ethers.getContractFactory("WorkContract");
-  const contract = await WorkContract.deploy(
-    workerAddress,
-    ethers.parseEther("0.001"),
-    2,
-    ethers.parseEther("0.001"),
-    3600,
-    7200,
-    { value: ethers.parseEther("0.002") }
-  );
-  
-  await contract.waitForDeployment();
-  console.log(`Contract deployed to: ${contract.target}`);
-
-  // 5. Contract Interaction and State Monitoring
-  console.log("\n=== Contract State Monitoring ===");
-  
-  const contractBalance = await contract.getContractBalance();
-  console.log(`Contract balance: ${ethers.formatEther(contractBalance)} ETH`);
-  
-  const [clientApproved, workerApproved] = await contract.getApprovalStatus();
-  console.log(`Approval status - Client: ${clientApproved}, Worker: ${workerApproved}`);
-  
-  const paymentReleased = await contract.isPaymentReleased();
-  console.log(`Payment released: ${paymentReleased}`);
-  
-  const [idealDeadline, maxDeadline] = await contract.getDeadlines();
-  console.log(`Deadlines - Ideal: ${new Date(Number(idealDeadline) * 1000)}, Max: ${new Date(Number(maxDeadline) * 1000)}`);
-
-  // 6. Event Monitoring
-  console.log("\n=== Event Monitoring ===");
-  
-  // Set up temporary event listeners for demonstration
-  console.log("Setting up temporary event listeners...");
-  
-  const eventCleanup = () => {
-    contract.removeAllListeners("Approval");
-    contract.removeAllListeners("PaymentReleased");
-    contract.removeAllListeners("GuaranteedClaimed");
-    console.log("Event listeners cleaned up");
-  };
-  
-  // Listen for contract events temporarily
-  contract.once("Approval", (approver, isClient) => {
-    console.log(`Approval event: ${approver} (${isClient ? 'client' : 'worker'})`);
-  });
-  
-  contract.once("PaymentReleased", (to, amount) => {
-    console.log(`Payment released: ${ethers.formatEther(amount)} ETH to ${to}`);
-  });
-  
-  contract.once("GuaranteedClaimed", (worker, amount) => {
-    console.log(`Guaranteed claimed: ${ethers.formatEther(amount)} ETH by ${worker}`);
-  });
-
-  // 7. Multi-signature Simulation
-  console.log("\n=== Multi-signature Simulation ===");
-  
-  // Simulate client approval
-  console.log("Simulating client approval...");
-  const clientApprovalTx = await contract.connect(deployer).approveCompletion();
-  await clientApprovalTx.wait();
-  console.log(`Client approval transaction: ${clientApprovalTx.hash}`);
-  
-  // Check state after approval
-  const [newClientApproved, newWorkerApproved] = await contract.getApprovalStatus();
-  console.log(`Updated approval status - Client: ${newClientApproved}, Worker: ${newWorkerApproved}`);
-
-  // 8. Gas Estimation and Optimization
-  console.log("\n=== Gas Analysis ===");
-  
-  try {
-    const gasEstimate = await contract.approveCompletion.estimateGas();
-    console.log(`Gas estimate for approveCompletion: ${gasEstimate.toString()}`);
-    
-    const gasPriceWei = await ethers.provider.getFeeData();
-    const estimatedCost = gasEstimate * (gasPriceWei.gasPrice || 0);
-    console.log(`Estimated cost: ${ethers.formatEther(estimatedCost)} ETH`);
-  } catch (error: any) {
-    console.log(`Gas estimation note: ${error.message.includes('already approved') ? 'Client already approved, gas estimation skipped' : 'Gas estimation failed'}`);
-  }
-
-  // 9. Network Switching Simulation
+  // 4. Network and address checks
   console.log("\n=== Network Information ===");
   
   const currentNetwork = await ethers.provider.getNetwork();
   console.log(`Connected to: ${currentNetwork.name}`);
   console.log(`Chain ID: ${currentNetwork.chainId}`);
-  console.log(`Block time: ~${currentNetwork.name === 'sepolia' ? '12' : '15'} seconds`);
 
-  // 10. Address Validation and Checksum
   console.log("\n=== Address Validation ===");
-  
-  const addresses = [
-    deployer.address,
-    workerAddress,
-    contract.target
-  ];
-  
-  addresses.forEach((address, index) => {
-    const isValid = ethers.isAddress(address);
-    const checksum = ethers.getAddress(address);
-    console.log(`Address ${index + 1}: ${isValid ? 'Valid' : 'Invalid'} ${checksum}`);
-  });
+  const checksum = ethers.getAddress(deployer.address);
+  console.log(`Deployer: ${ethers.isAddress(checksum) ? "Valid" : "Invalid"} ${checksum}`);
 
   console.log("\n=== Onchain Activity Demo Complete ===");
-  console.log("This demonstrates comprehensive blockchain interaction including:");
+  console.log("This demonstrates:");
   console.log("- ENS resolution and reverse lookup");
   console.log("- Transaction monitoring and history");
-  console.log("- Contract deployment and interaction");
-  console.log("- Event listening and monitoring");
-  console.log("- Gas estimation and optimization");
   console.log("- Address validation and checksum verification");
-  
-  // Clean up event listeners and ensure graceful exit
-  eventCleanup();
-  
-  // Give a brief moment for any pending operations, then exit
-  setTimeout(() => {
-    console.log("Demo complete, exiting gracefully...");
-    process.exit(0);
-  }, 1000);
 }
 
 main().catch((error) => {

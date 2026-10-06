@@ -4,9 +4,9 @@
   "main": "index.js",
   "scripts": {
     "test": "npx hardhat test",
-    "test:contract": "npx hardhat test test/WorkContract.test.ts",
+    "test:contract": "npx hardhat test test/MilestoneProject.test.ts",
     "compile": "npx hardhat compile",
-    "deploy": "npx hardhat run scripts/deploy.ts",
+    "deploy": "npx hardhat run scripts/deploy.ts --network localhost",
     "ens-demo": "npx hardhat run scripts/interact-with-ens.ts",
     "onchain-demo": "npx hardhat run scripts/onchain-activity.ts",
     "start-frontend": "python3 -m http.server 8080 --directory frontend & sleep 2 && open http://localhost:8080",
@@ -31,6 +31,7 @@
     "hardhat": "^2.24.0"
   },
   "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
     "dotenv": "^16.5.0"
   }
 }

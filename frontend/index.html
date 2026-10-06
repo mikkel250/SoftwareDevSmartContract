@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WorkContract dApp</title>
+    <title>Milestone Payments dApp</title>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
     <script>
         // Fallback loading for ethers.js
@@ -66,6 +66,15 @@
             background: #cccccc;
             cursor: not-allowed;
         }
+        .button.danger {
+            background: #c0392b;
+        }
+        .button.danger:hover {
+            background: #a93226;
+        }
+        .button.danger:disabled {
+            background: #cccccc;
+        }
         .status code {
             background: #f1f1f1;
             padding: 2px 6px;
@@ -82,6 +91,10 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+        }
+        .input.small {
+            width: 8em;
+            display: inline-block;
         }
         .status {
             padding: 10px;
@@ -110,6 +123,61 @@
             overflow-wrap: break-word;
             line-height: 1.4;
         }
+        .note {
+            font-size: 0.9em;
+            color: #555;
+            margin: 5px 0;
+        }
+        .muted {
+            color: #777;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            margin-left: 4px;
+        }
+        .badge.action { background: #fff3cd; color: #856404; }
+        .badge.credit { background: #d4edda; color: #155724; }
+        .link {
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            text-align: left;
+        }
+        #projectList {
+            list-style: none;
+            padding: 0;
+        }
+        #projectList li {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .milestone-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 10px;
+        }
+        .table-wrap {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+        th, td {
+            border-bottom: 1px solid #eee;
+            padding: 6px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .checkbox {
+            display: block;
+            margin: 10px 0;
+        }
         @media (max-width: 600px) {
             body {
                 padding: 10px;
@@ -120,13 +188,16 @@
             .status {
                 font-size: 0.9em;
             }
+            .milestone-row {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔗 WorkContract dApp</h1>
-        <p>A decentralized application for managing work agreements on Ethereum</p>
+        <h1>🔗 Milestone Payments dApp</h1>
+        <p>Pay for a software project one milestone at a time. The client locks the deposit and each milestone before the work, and the developer is paid on acceptance or when the review window ends.</p>
 
         <!-- Wallet Connection -->
         <div class="section">
@@ -136,6 +207,48 @@
                 Connected: <span id="walletAddress" class="address"></span>
             </div>
             <div id="walletConnectionStatus" class="status" style="display: none;"></div>
+            <div id="networkStatus" class="status" style="display: none;"></div>
+        </div>
+
+        <!-- My projects -->
+        <div class="section needs-factory">
+            <h2>📁 My projects</h2>
+            <ul id="projectList"><li class="muted">Connect your wallet to see your projects.</li></ul>
+            <button class="button" id="loadMoreProjects" style="display: none;" onclick="loadMoreProjects()">Load more</button>
+            <button class="button" onclick="refreshProjectsFromUser()">Refresh</button>
+        </div>
+
+        <!-- Create project -->
+        <div class="section needs-factory">
+            <h2>🛠️ Set up a project (developer)</h2>
+            <p class="note">Agree on the scope and what each milestone means with the client before you set up the payments.</p>
+            <label>Client address or ENS name
+                <input type="text" id="clientInput" class="input" placeholder="0x... or name.eth"></label>
+            <label>Asset
+                <select id="assetSelect" class="input"></select></label>
+            <p class="note">Amounts are fixed quantities of the chosen asset and are never repriced. Choose USDT, USDC, or USDS if you want the amounts to hold their dollar value.</p>
+            <label>Deposit (paid to you when the client starts the project, never returned)
+                <input type="text" id="depositInput" class="input" placeholder="e.g. 250"></label>
+            <label>Work total, not including the deposit
+                <input type="text" id="workTotalInput" class="input" placeholder="e.g. 3000"></label>
+            <label>Number of milestones
+                <input type="number" id="milestoneCountInput" class="input" min="1" max="50" value="3"></label>
+            <button class="button" onclick="proposeSplit()">Propose even split</button>
+            <div id="milestoneRows"></div>
+            <div id="splitHint" class="status" style="display: none;"></div>
+            <button class="button" id="createProjectBtn" onclick="createProject()" disabled>Create project</button>
+            <div id="createResult" class="status" style="display: none;"></div>
+        </div>
+
+        <!-- Project view -->
+        <div class="section">
+            <h2>📋 Project</h2>
+            <div class="needs-factory">
+                <input type="text" id="projectAddressInput" class="input" placeholder="Project address">
+                <button class="button" onclick="openProjectFromInput()">Open project</button>
+            </div>
+            <div id="projectResult" class="status" style="display: none;"></div>
+            <div id="projectView"></div>
         </div>
 
         <!-- ENS Resolution -->
@@ -146,28 +259,6 @@
             <div id="ensResult" class="status" style="display: none;"></div>
         </div>
 
-        <!-- Contract Interaction -->
-        <div class="section">
-            <h2>📋 Contract Management</h2>
-                            <input type="text" id="contractAddress" class="input" placeholder="Contract Address" value="0xAE39f19fd7377ec2389E459060955E86515F9d19">
-            <button class="button" onclick="loadContract()">Load Contract</button>
-            <button class="button" onclick="getContractInfo()">Get Contract Info</button>
-            <div id="contractInfo" class="status" style="display: none;"></div>
-        </div>
-
-        <!-- Contract Actions -->
-        <div class="section">
-            <h2>⚡ Contract Actions</h2>
-            <div id="contractActions">
-            <button class="button" id="approveBtn" onclick="approveCompletion()">Approve Completion</button>
-            <button class="button" id="claimGuaranteedBtn" onclick="claimGuaranteed()">Claim Guaranteed Amount</button>
-            <button class="button" id="workerClaimBtn" onclick="workerClaimAfterDeadline()">Worker Claim After Deadline</button>
-            <button class="button" id="clientClaimBtn" onclick="clientClaimAfterDeadline()">Client Claim After Deadline</button>
-            <button class="button" id="balanceBtn" onclick="getBalance()">Get Contract Balance</button>
-            </div>
-            <div id="actionResult" class="status" style="display: none;"></div>
-        </div>
-
         <!-- Blockchain Info -->
         <div class="section">
             <h2>🔍 Blockchain Information</h2>
@@ -176,805 +267,7 @@
         </div>
     </div>
 
-    <script>
-        let provider, signer, contract;
-        let isWalletConnected = false; // Track wallet connection state locally
-        const CONTRACT_ABI = [
-            "function client() view returns (address)",
-            "function worker() view returns (address)",
-            "function hourlyRate() view returns (uint256)",
-            "function hoursRequired() view returns (uint256)",
-            "function guaranteedAmount() view returns (uint256)",
-            "function getContractBalance() view returns (uint256)",
-            "function getApprovalStatus() view returns (bool, bool)",
-            "function isPaymentReleased() view returns (bool)",
-            "function getDeadlines() view returns (uint256, uint256)",
-            "function approveCompletion()",
-            "function claimGuaranteed()",
-            "function workerClaimAfterDeadline()",
-            "function clientClaimAfterDeadline()"
-        ];
-
-        function checkEthersLoaded() {
-            console.log('=== Ethers.js Loading Check ===');
-            console.log('typeof ethers:', typeof ethers);
-            if (typeof ethers !== 'undefined') {
-                console.log('ethers version:', ethers.version);
-                console.log('ethers providers:', Object.keys(ethers.providers || {}));
-                return true;
-            } else {
-                console.error('ethers is not defined!');
-                return false;
-            }
-        }
-
-        function checkWalletStatus() {
-            console.log('=== Wallet Detection Debug ===');
-            console.log('window.ethereum exists:', typeof window.ethereum !== 'undefined');
-            console.log('User agent:', navigator.userAgent);
-            
-            const isBrave = navigator.brave && navigator.brave.isBrave;
-            console.log('Brave browser detected:', isBrave);
-            
-            if (typeof window.ethereum !== 'undefined') {
-                console.log('MetaMask detected:', window.ethereum.isMetaMask);
-                console.log('Provider details:', window.ethereum);
-                console.log('Selected address:', window.ethereum.selectedAddress);
-                console.log('Provider list:', window.ethereum.providers ? window.ethereum.providers.length : 'No providers array');
-                
-                // Check for multiple providers (common in Brave)
-                if (window.ethereum.providers && window.ethereum.providers.length > 0) {
-                    console.log('Multiple providers detected:');
-                    window.ethereum.providers.forEach((provider, index) => {
-                        console.log(`Provider ${index}:`, {
-                            isMetaMask: provider.isMetaMask,
-                            isBraveWallet: provider.isBraveWallet,
-                            selectedAddress: provider.selectedAddress
-                        });
-                    });
-                }
-                
-                return { 
-                    available: true, 
-                    provider: window.ethereum,
-                    isMetaMask: window.ethereum.isMetaMask,
-                    isBrave: isBrave,
-                    hasMultipleProviders: window.ethereum.providers && window.ethereum.providers.length > 0,
-                    connected: window.ethereum.selectedAddress !== null
-                };
-            }
-            
-            console.log('No Ethereum provider found');
-            return { available: false, reason: 'No wallet provider found', isBrave: isBrave };
-        }
-
-        async function handleWalletAction() {
-            console.log('=== handleWalletAction called ===');
-            console.log('isWalletConnected:', isWalletConnected);
-            console.log('window.ethereum.selectedAddress:', window.ethereum?.selectedAddress);
-            console.log('provider:', provider);
-            console.log('signer:', signer);
-            
-            if (isWalletConnected) {
-                // Wallet is connected, show disconnect confirmation
-                console.log('Wallet is connected, showing disconnect confirmation');
-                if (confirm('Are you sure you want to disconnect your wallet?')) {
-                    console.log('User confirmed disconnect, calling disconnectWallet');
-                    await disconnectWallet();
-                    console.log('disconnectWallet completed');
-                } else {
-                    console.log('User cancelled disconnect');
-                }
-            } else {
-                // Wallet is not connected, connect it
-                console.log('Wallet is not connected, calling connectWallet');
-                connectWallet();
-            }
-        }
-
-        async function connectWallet() {
-            console.log('=== Starting Wallet Connection ===');
-            
-            // Show loading state
-            const connectBtn = document.getElementById('walletButton');
-            if (connectBtn) {
-                connectBtn.textContent = 'Connecting...';
-                connectBtn.disabled = true;
-            }
-
-            try {
-                console.log('Checking wallet status...');
-                const walletStatus = checkWalletStatus();
-                
-                if (!walletStatus.available) {
-                    let message = 'Please install MetaMask or another Web3 wallet to continue. ' +
-                        '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Download MetaMask</a>';
-                    
-                    if (walletStatus.isBrave) {
-                        message = '<strong>Brave Browser Detected!</strong><br><br>' +
-                            'Brave has a built-in wallet that may conflict with MetaMask. To use MetaMask:<br><br>' +
-                            '1. Go to <code>brave://settings/web3</code><br>' +
-                            '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong> or <strong>"None"</strong><br>' +
-                            '3. Restart Brave browser<br>' +
-                            '4. Try connecting again<br><br>' +
-                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
-                    }
-                    
-                    showResult('walletStatus', message, 'error');
-                    return;
-                }
-
-                // Check for Brave wallet conflicts
-                if (walletStatus.isBrave && walletStatus.hasMultipleProviders) {
-                    console.log('Brave with multiple providers detected, attempting to use MetaMask...');
-                    
-                    // Try to find MetaMask provider
-                    const metaMaskProvider = window.ethereum.providers?.find(provider => provider.isMetaMask);
-                    if (metaMaskProvider) {
-                        console.log('Using MetaMask provider specifically');
-                        window.ethereum = metaMaskProvider;
-                    }
-                } else if (walletStatus.isBrave && !window.ethereum.isMetaMask) {
-                    showResult('walletStatus', 
-                        ' <strong>Brave Wallet Detected!</strong><br><br>' +
-                        'It looks like Brave Wallet is the default. To use MetaMask instead:<br><br>' +
-                        '1. Go to <code>brave://settings/web3</code><br>' +
-                        '2. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
-                        '3. Restart Brave and try again<br><br>' +
-                        'Or continue with Brave Wallet (experimental)', 
-                        'error');
-                    return;
-                }
-
-                console.log('Requesting account access...');
-                showResult('walletConnectionStatus', 'Requesting wallet connection...', 'info');
-
-                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                console.log('Accounts received:', accounts);
-
-                if (accounts.length === 0) {
-                    throw new Error('No accounts returned from wallet');
-                }
-
-                console.log('Creating provider and signer...');
-                provider = new ethers.providers.Web3Provider(window.ethereum);
-                signer = provider.getSigner();
-                const address = await signer.getAddress();
-                const network = await provider.getNetwork();
-                
-                console.log('Connected address:', address);
-                console.log('Connected network:', network);
-                
-                console.log('Updating DOM elements...');
-                const walletStatusElement = document.getElementById('walletStatus');
-                const walletAddressElement = document.getElementById('walletAddress');
-                
-                console.log('DOM elements found:', {
-                    walletStatus: !!walletStatusElement,
-                    walletAddress: !!walletAddressElement,
-                    walletStatusId: walletStatusElement?.id,
-                    walletAddressId: walletAddressElement?.id
-                });
-                
-                if (!walletStatusElement || !walletAddressElement) {
-                    console.error('DOM elements missing:', {
-                        walletStatus: walletStatusElement,
-                        walletAddress: walletAddressElement
-                    });
-                    throw new Error('Required DOM elements not found');
-                }
-                
-                console.log('Updating wallet status display...');
-                walletStatusElement.style.display = 'block';
-                walletStatusElement.className = 'status success';
-                walletAddressElement.textContent = address;
-                
-                console.log('Adding network info...');
-                // Add network info below the address
-                const networkInfo = document.createElement('div');
-                networkInfo.style.fontSize = '0.9em';
-                networkInfo.style.marginTop = '5px';
-                networkInfo.textContent = `Network: ${network.name} (${network.chainId})`;
-                
-                // Clear any existing network info and add the new one
-                const existingNetworkInfo = walletStatusElement.querySelector('.network-info');
-                if (existingNetworkInfo) {
-                    existingNetworkInfo.remove();
-                }
-                networkInfo.className = 'network-info';
-                walletStatusElement.appendChild(networkInfo);
-
-                console.log('Updating button text and state...');
-                // Update button text and local state
-                if (connectBtn) {
-                    connectBtn.textContent = 'Disconnect Wallet';
-                }
-                isWalletConnected = true;
-                
-                console.log('=== Wallet Connection Successful ===');
-                console.log('isWalletConnected after connect:', isWalletConnected);
-                
-                // Clear the connection status message
-                const connectionStatus = document.getElementById('walletConnectionStatus');
-                if (connectionStatus) {
-                    connectionStatus.style.display = 'none';
-                }
-
-            } catch (error) {
-                console.error('Wallet connection error:', error);
-                
-                let errorMessage = 'Error connecting wallet: ';
-                if (error.code === 4001) {
-                    errorMessage += 'Connection request was rejected by user';
-                } else if (error.code === -32002) {
-                    errorMessage += 'Connection request is already pending. Please check your wallet.';
-                } else if (error.message.includes('Required DOM elements not found')) {
-                    errorMessage += 'Page structure error - please refresh the page and try again';
-                } else {
-                    errorMessage += escapeHtml(error.message);
-                }
-                
-                showResult('walletConnectionStatus', errorMessage, 'error');
-            } finally {
-                if (connectBtn) {
-                    connectBtn.textContent = isWalletConnected ? 'Disconnect Wallet' : 'Connect Wallet';
-                    connectBtn.disabled = false;
-                }
-            }
-        }
-
-        function clearWalletSession() {
-            provider = null;
-            signer = null;
-            contract = null;
-            isWalletConnected = false;
-
-            const walletStatus = document.getElementById('walletStatus');
-            const walletAddress = document.getElementById('walletAddress');
-            const connectBtn = document.getElementById('walletButton');
-
-            if (walletStatus) {
-                walletStatus.style.display = 'none';
-                const networkInfo = walletStatus.querySelector('.network-info');
-                if (networkInfo) {
-                    networkInfo.remove();
-                }
-            }
-            if (walletAddress) {
-                walletAddress.textContent = '';
-            }
-            if (connectBtn) {
-                connectBtn.textContent = 'Connect Wallet';
-                connectBtn.disabled = false;
-            }
-
-            ['contractInfo', 'actionResult', 'walletConnectionStatus'].forEach((id) => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.style.display = 'none';
-                }
-            });
-        }
-
-        async function disconnectWallet() {
-            console.log('=== Disconnecting Wallet ===');
-
-            if (!isWalletConnected && !provider && !signer) {
-                console.log('No active connection to disconnect');
-                return;
-            }
-
-            getMetaMaskStatus();
-            const connectBtn = document.getElementById('walletButton');
-            if (connectBtn) {
-                connectBtn.disabled = true;
-                connectBtn.textContent = 'Disconnecting...';
-            }
-
-            try {
-                if (typeof window.ethereum !== 'undefined' && window.ethereum.request) {
-                    try {
-                        await window.ethereum.request({
-                            method: 'wallet_revokePermissions',
-                            params: [{ eth_accounts: {} }]
-                        });
-                        console.log('Successfully revoked wallet permissions');
-                    } catch (e) {
-                        console.log('wallet_revokePermissions not supported or failed:', e.message);
-                        try {
-                            if (window.ethereum.disconnect && typeof window.ethereum.disconnect === 'function') {
-                                await window.ethereum.disconnect();
-                                console.log('Successfully disconnected using disconnect method');
-                            }
-                        } catch (e2) {
-                            console.log('disconnect method not supported or failed:', e2.message);
-                        }
-                    }
-                }
-            } finally {
-                clearWalletSession();
-                console.log('=== Wallet Disconnected ===');
-                showResult('walletConnectionStatus', 'Wallet disconnected successfully!', 'success');
-            }
-        }
-
-        async function checkExistingConnection() {
-            console.log('=== Checking Existing Connection ===');
-            
-            // Get current MetaMask status
-            const metaMaskStatus = getMetaMaskStatus();
-            
-            const walletStatus = checkWalletStatus();
-            if (!walletStatus.available) {
-                console.log('No wallet available');
-                return false;
-            }
-
-            if (walletStatus.connected) {
-                try {
-                    provider = new ethers.providers.Web3Provider(window.ethereum);
-                    signer = provider.getSigner();
-                    const address = await signer.getAddress();
-                    const network = await provider.getNetwork();
-                    
-                    console.log('Existing connection found:', address);
-                    
-                    const walletStatusElement = document.getElementById('walletStatus');
-                    const walletAddressElement = document.getElementById('walletAddress');
-                    
-                    if (!walletStatusElement || !walletAddressElement) {
-                        console.log('Required DOM elements not found in checkExistingConnection');
-                        return false;
-                    }
-                    
-                    walletStatusElement.style.display = 'block';
-                    walletStatusElement.className = 'status success';
-                    walletAddressElement.textContent = address;
-                    
-                    // Add network info below the address
-                    const networkInfo = document.createElement('div');
-                    networkInfo.style.fontSize = '0.9em';
-                    networkInfo.style.marginTop = '5px';
-                    networkInfo.textContent = `Network: ${network.name} (${network.chainId})`;
-                    
-                    // Clear any existing network info and add the new one
-                    const existingNetworkInfo = walletStatusElement.querySelector('.network-info');
-                    if (existingNetworkInfo) {
-                        existingNetworkInfo.remove();
-                    }
-                    networkInfo.className = 'network-info';
-                    walletStatusElement.appendChild(networkInfo);
-                    
-                    const connectBtn = document.getElementById('walletButton');
-                    if (connectBtn) {
-                        connectBtn.textContent = 'Disconnect Wallet';
-                    }
-                    
-                    isWalletConnected = true;
-                    return true;
-                } catch (error) {
-                    console.log('Failed to restore existing connection:', error);
-                    // Reset state on error
-                    isWalletConnected = false;
-                    provider = null;
-                    signer = null;
-                    return false;
-                }
-            }
-            
-            return false;
-        }
-
-        async function resolveENS() {
-            try {
-                const ensName = document.getElementById('ensInput').value;
-                if (!ensName) {
-                    showResult('ensResult', 'Please enter an ENS name', 'error');
-                    return;
-                }
-
-                const address = await provider.resolveName(ensName);
-                if (address) {
-                    const reverseName = await provider.lookupAddress(address);
-                    const result = `${escapeHtml(ensName)} → ${escapeHtml(address)}<br>Reverse: ${escapeHtml(address)} → ${escapeHtml(reverseName || 'No ENS name')}`;
-                    showResult('ensResult', result, 'success');
-                } else {
-                    showResult('ensResult', `${escapeHtml(ensName)} not found`, 'error');
-                }
-            } catch (error) {
-                showResult('ensResult', 'Error resolving ENS: ' + escapeHtml(error.message), 'error');
-            }
-        }
-
-        async function loadContract() {
-            try {
-                // Check if ethers is loaded
-                if (!checkEthersLoaded()) {
-                    showResult('contractInfo', 'Ethers.js library is not loaded. Please refresh the page and try again.', 'error');
-                    return;
-                }
-
-                if (!provider || !signer) {
-                    showResult('contractInfo', 'Connect a wallet before loading a contract', 'error');
-                    return;
-                }
-
-                const address = document.getElementById('contractAddress').value.trim();
-                if (!address || !ethers.utils.isAddress(address)) {
-                    showResult('contractInfo', 'Enter a valid contract address', 'error');
-                    return;
-                }
-
-                const code = await provider.getCode(address);
-                if (!code || code === '0x') {
-                    showResult('contractInfo', 'No contract code at that address', 'error');
-                    return;
-                }
-
-                contract = new ethers.Contract(address, CONTRACT_ABI, signer);
-                showResult('contractInfo', 'Contract loaded successfully!', 'success');
-            } catch (error) {
-                contract = null;
-                showResult('contractInfo', 'Error loading contract: ' + escapeHtml(error.message), 'error');
-            }
-        }
-
-        async function getContractInfo() {
-            try {
-                if (!contract) {
-                    showResult('contractInfo', 'Please load a contract first', 'error');
-                    return;
-                }
-
-                const client = await contract.client();
-                const worker = await contract.worker();
-                const hourlyRate = await contract.hourlyRate();
-                const hoursRequired = await contract.hoursRequired();
-                const balance = await contract.getContractBalance();
-                const [clientApproved, workerApproved] = await contract.getApprovalStatus();
-                const paymentReleased = await contract.isPaymentReleased();
-
-                const info = `
-                    <strong>Contract Information:</strong><br>
-                    Client: ${escapeHtml(client)}<br>
-                    Worker: ${escapeHtml(worker)}<br>
-                    Hourly Rate: ${escapeHtml(ethers.utils.formatEther(hourlyRate))} ETH<br>
-                    Hours Required: ${escapeHtml(hoursRequired)}<br>
-                    Contract Balance: ${escapeHtml(ethers.utils.formatEther(balance))} ETH<br>
-                    Client Approved: ${escapeHtml(clientApproved)}<br>
-                    Worker Approved: ${escapeHtml(workerApproved)}<br>
-                    Payment Released: ${escapeHtml(paymentReleased)}
-                `;
-                showResult('contractInfo', info, 'info');
-            } catch (error) {
-                showResult('contractInfo', 'Error getting contract info: ' + escapeHtml(error.message), 'error');
-            }
-        }
-
-        function setContractActionsDisabled(disabled) {
-            document.querySelectorAll('#contractActions button').forEach((button) => {
-                button.disabled = disabled;
-            });
-        }
-
-        async function runContractAction(action) {
-            setContractActionsDisabled(true);
-            try {
-                await action();
-            } finally {
-                setContractActionsDisabled(false);
-            }
-        }
-
-        async function approveCompletion() {
-            await runContractAction(async () => {
-            try {
-                if (!contract) {
-                    showResult('actionResult', 'Please load a contract first', 'error');
-                    return;
-                }
-
-                // Check current approval status first
-                const [clientApproved, workerApproved] = await contract.getApprovalStatus();
-                const isPaymentReleased = await contract.isPaymentReleased();
-                
-                if (isPaymentReleased) {
-                    showResult('actionResult', 'Payment has already been released. No further approvals needed.', 'info');
-                    return;
-                }
-                
-                if (clientApproved && workerApproved) {
-                    showResult('actionResult', 'Both parties have already approved completion. Payment should be released.', 'info');
-                    return;
-                }
-
-                const tx = await contract.approveCompletion();
-                await tx.wait();
-                showResult('actionResult', 'Approval successful!<br><strong>Transaction:</strong> <span class="hash">' + escapeHtml(tx.hash) + '</span>', 'success');
-            } catch (error) {
-                // Enhanced error handling for common scenarios
-                if (error.message.includes('execution reverted')) {
-                    if (error.message.includes('Already approved') || error.message.includes('already approved')) {
-                        showResult('actionResult', 'You have already approved completion. Waiting for the other party to approve.', 'info');
-                    } else if (error.message.includes('Payment already released') || error.message.includes('already released')) {
-                        showResult('actionResult', 'Payment has already been released. The contract is complete.', 'info');
-                    } else {
-                        showResult('actionResult', 'Contract rejected the approval. This may be because:<br>• You have already approved<br>• Payment has been released<br>• Contract conditions are not met<br><br>Error: ' + escapeHtml(error.message), 'error');
-                    }
-                } else {
-                    showResult('actionResult', 'Error approving: ' + escapeHtml(error.message), 'error');
-                }
-            }
-            });
-        }
-
-        async function claimGuaranteed() {
-            await runContractAction(() => sendContractTx(
-                () => contract.claimGuaranteed(),
-                'Guaranteed amount claimed!'
-            ));
-        }
-
-        async function workerClaimAfterDeadline() {
-            await runContractAction(() => sendContractTx(
-                () => contract.workerClaimAfterDeadline(),
-                'Worker deadline claim successful!'
-            ));
-        }
-
-        async function clientClaimAfterDeadline() {
-            await runContractAction(() => sendContractTx(
-                () => contract.clientClaimAfterDeadline(),
-                'Client deadline claim successful!'
-            ));
-        }
-
-        async function sendContractTx(send, successLabel) {
-            try {
-                if (!contract) {
-                    showResult('actionResult', 'Please load a contract first', 'error');
-                    return;
-                }
-
-                const tx = await send();
-                await tx.wait();
-                showResult('actionResult', escapeHtml(successLabel) + '<br><strong>Transaction:</strong> <span class="hash">' + escapeHtml(tx.hash) + '</span>', 'success');
-            } catch (error) {
-                showResult('actionResult', 'Error sending transaction: ' + escapeHtml(error.message), 'error');
-            }
-        }
-
-        async function getBalance() {
-            await runContractAction(async () => {
-            try {
-                if (!contract) {
-                    showResult('actionResult', 'Please load a contract first', 'error');
-                    return;
-                }
-
-                const balance = await contract.getContractBalance();
-                showResult('actionResult', 'Contract Balance: ' + escapeHtml(ethers.utils.formatEther(balance)) + ' ETH', 'info');
-            } catch (error) {
-                showResult('actionResult', 'Error getting balance: ' + escapeHtml(error.message), 'error');
-            }
-            });
-        }
-
-        async function getBlockchainInfo() {
-            try {
-                const blockNumber = await provider.getBlockNumber();
-                const network = await provider.getNetwork();
-                const gasPrice = await provider.getGasPrice();
-                const balance = await signer.getBalance();
-
-                const info = `
-                    <strong>Blockchain Information:</strong><br>
-                    Current Block: ${escapeHtml(blockNumber)}<br>
-                    Network: ${escapeHtml(network.name)} (Chain ID: ${escapeHtml(network.chainId)})<br>
-                    Gas Price: ${escapeHtml(ethers.utils.formatUnits(gasPrice, 'gwei'))} Gwei<br>
-                    Your Balance: ${escapeHtml(ethers.utils.formatEther(balance))} ETH
-                `;
-                showResult('blockchainInfo', info, 'info');
-            } catch (error) {
-                showResult('blockchainInfo', 'Error getting blockchain info: ' + escapeHtml(error.message), 'error');
-            }
-        }
-
-        function escapeHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function showResult(elementId, message, type) {
-            const element = document.getElementById(elementId);
-            element.innerHTML = message;
-            element.className = 'status ' + type;
-            element.style.display = 'block';
-        }
-
-        function testDOMAccess() {
-            console.log('=== Testing DOM Access ===');
-            const elements = {
-                walletStatus: document.getElementById('walletStatus'),
-                walletAddress: document.getElementById('walletAddress'),
-                walletButton: document.getElementById('walletButton')
-            };
-            
-            console.log('DOM elements test:', {
-                walletStatus: {
-                    found: !!elements.walletStatus,
-                    id: elements.walletStatus?.id,
-                    tagName: elements.walletStatus?.tagName,
-                    className: elements.walletStatus?.className
-                },
-                walletAddress: {
-                    found: !!elements.walletAddress,
-                    id: elements.walletAddress?.id,
-                    tagName: elements.walletAddress?.tagName,
-                    className: elements.walletAddress?.className
-                },
-                walletButton: {
-                    found: !!elements.walletButton,
-                    id: elements.walletButton?.id,
-                    tagName: elements.walletButton?.tagName,
-                    textContent: elements.walletButton?.textContent
-                }
-            });
-            
-            return elements.walletStatus && elements.walletAddress && elements.walletButton;
-        }
-
-        function getMetaMaskStatus() {
-            console.log('=== MetaMask Status Check ===');
-            const isBrave = navigator.brave && navigator.brave.isBrave;
-            
-            const status = {
-                ethereumExists: typeof window.ethereum !== 'undefined',
-                selectedAddress: window.ethereum?.selectedAddress,
-                isConnected: window.ethereum?.selectedAddress !== null && window.ethereum?.selectedAddress !== undefined,
-                isMetaMask: window.ethereum?.isMetaMask,
-                chainId: window.ethereum?.chainId,
-                networkVersion: window.ethereum?.networkVersion,
-                isBrave: isBrave,
-                hasMultipleProviders: window.ethereum?.providers && window.ethereum.providers.length > 0,
-                localState: {
-                    isWalletConnected,
-                    hasProvider: !!provider,
-                    hasSigner: !!signer
-                }
-            };
-            
-            console.log('MetaMask Status:', status);
-            return status;
-        }
-
-        // Handle wallet events
-        if (typeof window.ethereum !== 'undefined') {
-            window.ethereum.on('accountsChanged', (accounts) => {
-                console.log('Accounts changed:', accounts);
-                if (accounts.length === 0) {
-                    // User disconnected wallet
-                    console.log('Wallet disconnected via accountsChanged event');
-                    document.getElementById('walletStatus').style.display = 'none';
-                    const connectBtn = document.getElementById('walletButton');
-                    if (connectBtn) {
-                        connectBtn.textContent = 'Connect Wallet';
-                    }
-                    isWalletConnected = false;
-                    provider = null;
-                    signer = null;
-                    contract = null;
-                } else {
-                    // Account switched, reconnect
-                    console.log('Account switched, reconnecting...');
-                    checkExistingConnection();
-                }
-            });
-
-            window.ethereum.on('chainChanged', (chainId) => {
-                console.log('Chain changed:', chainId);
-                // Reload the page to reset the dApp state
-                window.location.reload();
-            });
-            
-            // Handle disconnect event (MetaMask v10+)
-            if (window.ethereum.on && typeof window.ethereum.on === 'function') {
-                try {
-                    window.ethereum.on('disconnect', (error) => {
-                        console.log('MetaMask disconnect event:', error);
-                        // Reset local state when MetaMask disconnects
-                        isWalletConnected = false;
-                        provider = null;
-                        signer = null;
-                        contract = null;
-                        
-                        // Update UI
-                        const walletStatus = document.getElementById('walletStatus');
-                        const connectBtn = document.getElementById('walletButton');
-                        
-                        if (walletStatus) {
-                            walletStatus.style.display = 'none';
-                        }
-                        if (connectBtn) {
-                            connectBtn.textContent = 'Connect Wallet';
-                        }
-                    });
-                } catch (e) {
-                    console.log('disconnect event not supported:', e.message);
-                }
-            }
-        }
-
-        // Auto-check existing connection on page load
-        window.addEventListener('load', async () => {
-            console.log('=== Page Loaded - Checking Wallet Status ===');
-            
-            // Add a small delay to ensure MetaMask is fully loaded
-            setTimeout(async () => {
-                // First check if DOM elements are available
-                const walletStatus = document.getElementById('walletStatus');
-                const walletAddress = document.getElementById('walletAddress');
-                const walletButton = document.getElementById('walletButton');
-                
-                console.log('DOM elements check on load:', {
-                    walletStatus: !!walletStatus,
-                    walletAddress: !!walletAddress,
-                    walletButton: !!walletButton
-                });
-                
-                if (!walletStatus || !walletAddress || !walletButton) {
-                    console.error('Critical DOM elements missing on page load');
-                    return;
-                }
-                
-                // Test DOM access
-                if (!testDOMAccess()) {
-                    console.error('DOM access test failed');
-                    return;
-                }
-                
-                // Check MetaMask status
-                const metaMaskStatus = getMetaMaskStatus();
-                console.log('MetaMask status on page load:', metaMaskStatus);
-                
-                // If MetaMask is connected, restore the connection
-                if (metaMaskStatus.isConnected) {
-                    console.log('MetaMask is connected, restoring connection...');
-                    const isConnected = await checkExistingConnection();
-                    if (isConnected) {
-                        console.log('Successfully restored existing connection');
-                        return;
-                    }
-                }
-                
-                // If no existing connection found
-                console.log('No existing connection found');
-                
-                // Show helpful message if no wallet detected
-                if (!metaMaskStatus.ethereumExists) {
-                    let message = 'To use this dApp, please install MetaMask or another Web3 wallet first.';
-                    
-                    if (metaMaskStatus.isBrave) {
-                        message = ' <strong>Brave Browser Detected!</strong><br><br>' +
-                            'For the best experience with this dApp:<br><br>' +
-                            '1. Install MetaMask extension<br>' +
-                            '2. Go to <code>brave://settings/web3</code><br>' +
-                            '3. Set "Default Ethereum wallet" to <strong>"Extensions"</strong><br>' +
-                            '4. Restart Brave and return to this page<br><br>' +
-                            '<a href="https://metamask.io/download/" target="_blank" style="color: #007bff;">Install MetaMask</a>';
-                    }
-                    
-                    showResult('walletConnectionStatus', message, 'info');
-                } else if (!metaMaskStatus.isConnected) {
-                    // MetaMask exists but not connected
-                    showResult('walletConnectionStatus', 'MetaMask detected. Click "Connect Wallet" to connect.', 'info');
-                }
-            }, 100);
-        });
-    </script>
+    <script src="milestone-math.js"></script>
+    <script src="app.js"></script>
 </body>
-</html> 
+</html>
