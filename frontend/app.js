@@ -663,8 +663,8 @@ const PROJECT_ABI = [
     "function getSummary() view returns (tuple(address factory, address developer, address client, address asset, uint256 deposit, uint8 status, uint256 milestoneCount, uint256 currentMilestone, uint256 termsVersion, uint256 confirmedVersion))",
     "function getMilestones() view returns (tuple(uint256 amount, uint64 reviewWindow, uint64 deliveredAt, uint8 status)[])",
     "function owed(address) view returns (uint256)",
-    "function editDeposit(uint256 newDeposit)",
-    "function editMilestone(uint256 index, uint256 amount, uint256 reviewWindow)",
+    "function editDeposit(uint256 newDeposit, uint256 expectedVersion)",
+    "function editMilestone(uint256 index, uint256 amount, uint256 reviewWindow, uint256 expectedVersion)",
     "function confirmTerms(uint256 version)",
     "function startLock(uint256 expectedDeposit, uint256 expectedAmount, uint256 expectedWindow) payable",
     "function fundMilestone(uint256 index, uint256 expectedAmount, uint256 expectedWindow) payable",
@@ -675,6 +675,8 @@ const PROJECT_ABI = [
     "function withdraw()",
     "event DepositEdited(address indexed by, uint256 deposit, uint256 termsVersion)",
     "event MilestoneEdited(uint256 indexed index, address indexed by, uint256 amount, uint256 reviewWindow, uint256 termsVersion)",
+    "event PaymentSent(address indexed to, uint256 amount)",
+    "event PaymentCredited(address indexed to, uint256 amount)",
     ...ERROR_ABI
 ];
 
@@ -699,7 +701,7 @@ const ERROR_MESSAGES = {
     PreviousNotPaid: 'The previous milestone must be paid before this one can be funded.',
     TermsChanged: 'The amounts or review window changed since you loaded them. The page has refreshed the current values; review them and try again.',
     TermsNotConfirmed: 'Waiting for the developer to confirm the latest changes.',
-    StaleVersion: 'The terms changed again before you confirmed. Review the refreshed values and confirm again.',
+    StaleVersion: 'The terms changed again before this was saved. Review the refreshed values and try again.',
     WrongValue: 'The amount sent does not match the locked amount.',
     ReviewClosed: 'The review window has ended. The milestone can only be released to the developer now.',
     ReviewOpen: 'The review window is still open.',
@@ -718,12 +720,18 @@ let currentProject = null;
 let createDraft = null;
 let chainClockOffset = 0;
 let countdownTimer = null;
+let projectLoadSeq = 0;
+let actionInFlight = false;
+let countdownRefreshStarted = false;
 let errorInterface = null;
 
 function setupMilestoneUi() {
     document.getElementById('projectList').addEventListener('click', (event) => {
         const row = event.target.closest('[data-open-project]');
         if (row) {
+            if (actionInFlight) {
+                return;
+            }
             document.getElementById('projectAddressInput').value = row.dataset.openProject;
             openProject(row.dataset.openProject);
         }
@@ -800,8 +808,14 @@ function chainNow() {
 }
 
 async function syncChainClock() {
-    const block = await provider.getBlock('latest');
-    chainClockOffset = Math.max(0, block.timestamp - Date.now() / 1000);
+    try {
+        const block = await provider.getBlock('latest');
+        if (block) {
+            chainClockOffset = block.timestamp - Date.now() / 1000;
+        }
+    } catch (error) {
+        // Keep the previous offset so a failed block read cannot stop the page from rendering.
+    }
 }
 
 async function lookupName(address) {
@@ -1239,17 +1253,35 @@ function availableActions(p, now) {
     return actions;
 }
 
+const LOG_CHUNK = 2000;
+const LOG_LOOKBACK = 200000;
+
+async function queryFilterBounded(contract, filter) {
+    const latest = await provider.getBlockNumber();
+    const start = Math.max(0, latest - LOG_LOOKBACK);
+    const logs = [];
+    for (let from = start; from <= latest; from += LOG_CHUNK) {
+        const to = Math.min(latest, from + LOG_CHUNK - 1);
+        logs.push(...await contract.queryFilter(filter, from, to));
+    }
+    return logs;
+}
+
 async function loadClientEdits(p) {
-    const [depositEdits, milestoneEdits] = await Promise.all([
-        p.contract.queryFilter(p.contract.filters.DepositEdited(), 0),
-        p.contract.queryFilter(p.contract.filters.MilestoneEdited(), 0)
-    ]);
-    return [...depositEdits, ...milestoneEdits]
+    try {
+        const [depositEdits, milestoneEdits] = await Promise.all([
+            queryFilterBounded(p.contract, p.contract.filters.DepositEdited()),
+            queryFilterBounded(p.contract, p.contract.filters.MilestoneEdited())
+        ]);
+        return [...depositEdits, ...milestoneEdits]
         .filter((e) => toBig(e.args.termsVersion) > p.confirmedVersion && sameAddress(e.args.by, p.client))
         .sort((a, b) => (toBig(a.args.termsVersion) < toBig(b.args.termsVersion) ? -1 : 1))
         .map((e) => e.event === 'DepositEdited'
             ? `Deposit set to ${formatAmount(toBig(e.args.deposit), p.asset)}`
             : `Milestone ${Number(e.args.index) + 1} set to ${formatAmount(toBig(e.args.amount), p.asset)}, review window ${formatDuration(Number(e.args.reviewWindow))}`);
+    } catch (error) {
+        return [];
+    }
 }
 
 function clearProjectView() {
@@ -1264,11 +1296,23 @@ function clearProjectView() {
     }
 }
 
+function refreshProjectsFromUser() {
+    if (actionInFlight) {
+        return;
+    }
+    return refreshProjects();
+}
+
 async function openProjectFromInput() {
+    if (actionInFlight) {
+        return;
+    }
     await openProject(document.getElementById('projectAddressInput').value.trim());
 }
 
 async function openProject(address, { keepMessage = false } = {}) {
+    const seq = ++projectLoadSeq;
+    const stale = () => seq !== projectLoadSeq;
     try {
         if (!factory) {
             showResult('projectResult', 'Connect a wallet on a supported network first.', 'error');
@@ -1278,21 +1322,37 @@ async function openProject(address, { keepMessage = false } = {}) {
             showResult('projectResult', 'Enter a valid project address.', 'error');
             return;
         }
-        if (!(await factory.isProject(address))) {
+        const known = await factory.isProject(address);
+        if (stale()) {
+            return;
+        }
+        if (!known) {
             clearProjectView();
             showResult('projectResult', 'Refused: that address was not created by this network\'s milestone factory.', 'error');
             return;
         }
         const p = await readProject(ethers.utils.getAddress(address));
+        if (stale()) {
+            return;
+        }
         if (!p.asset) {
             throw new Error('The project asset is not in deployments.json for this network');
         }
-        const [developerName, clientName, clientEdits] = await Promise.all([
+        const [developerName, clientName] = await Promise.all([
             lookupName(p.developer),
-            lookupName(p.client),
-            isConfirmed(p) ? [] : loadClientEdits(p),
-            syncChainClock()
+            lookupName(p.client)
         ]);
+        if (stale()) {
+            return;
+        }
+        const clientEdits = isConfirmed(p) ? [] : await loadClientEdits(p);
+        if (stale()) {
+            return;
+        }
+        await syncChainClock();
+        if (stale()) {
+            return;
+        }
         Object.assign(p, { developerName, clientName, clientEdits });
         currentProject = p;
         if (!keepMessage) {
@@ -1300,6 +1360,9 @@ async function openProject(address, { keepMessage = false } = {}) {
         }
         renderProject();
     } catch (error) {
+        if (stale()) {
+            return;
+        }
         showResult('projectResult', 'Could not open the project: ' + escapeHtml(describeError(error)), 'error');
     }
 }
@@ -1426,6 +1489,10 @@ function renderProject() {
 
     document.getElementById('projectView').innerHTML = parts.join('');
     updateStartLockButton();
+    if (actionInFlight) {
+        setProjectButtonsDisabled(true);
+        return;
+    }
     startCountdown();
 }
 
@@ -1451,6 +1518,9 @@ function startCountdown() {
         return;
     }
     const tick = () => {
+        if (actionInFlight || !currentProject) {
+            return;
+        }
         const now = chainNow();
         let ended = false;
         document.querySelectorAll('#projectView [data-countdown]').forEach((element) => {
@@ -1459,10 +1529,12 @@ function startCountdown() {
                 ended = true;
             } else {
                 element.textContent = `(${formatDuration(remaining)} left)`;
+                countdownRefreshStarted = false;
             }
         });
-        if (ended) {
-            renderProject();
+        if (ended && !countdownRefreshStarted) {
+            countdownRefreshStarted = true;
+            openProject(currentProject.address, { keepMessage: true });
         }
     };
     tick();
@@ -1475,20 +1547,55 @@ function setProjectButtonsDisabled(disabled) {
     });
 }
 
-async function runProjectTx(label, send) {
-    setProjectButtonsDisabled(true);
-    const address = currentProject.address;
-    try {
-        showResult('projectResult', `${escapeHtml(label)}: confirm in your wallet...`, 'info');
-        const tx = await send();
-        showResult('projectResult', `${escapeHtml(label)}: waiting for the transaction...`, 'info');
-        await tx.wait();
-        showResult('projectResult', `${escapeHtml(label)} succeeded.<br><strong>Transaction:</strong> <span class="hash">${escapeHtml(tx.hash)}</span>`, 'success');
-    } catch (error) {
-        showResult('projectResult', `${escapeHtml(label)} failed: ${escapeHtml(describeError(error))}`, 'error');
+function showPaymentResult(label, tx, receipt, asset) {
+    const hash = `<br><strong>Transaction:</strong> <span class="hash">${escapeHtml(tx.hash)}</span>`;
+    const credited = (receipt.events || []).filter((event) => event.event === 'PaymentCredited');
+    if (!credited.length) {
+        showResult('projectResult', `${escapeHtml(label)} succeeded.${hash}`, 'success');
+        return;
     }
-    await openProject(address, { keepMessage: true });
-    await refreshProjects();
+    const lines = credited.map((event) => {
+        const amount = formatAmount(toBig(event.args.amount), asset);
+        const to = event.args.to;
+        return `${escapeHtml(amount)} for <span class="address">${escapeHtml(to)}</span> was not transferred. That address must withdraw the credit.`;
+    });
+    showResult(
+        'projectResult',
+        `${escapeHtml(label)} was recorded, but the transfer did not complete.<br>${lines.join('<br>')}${hash}`,
+        'error'
+    );
+}
+
+async function runProjectTx(label, send) {
+    actionInFlight = true;
+    let address = null;
+    try {
+        if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+        }
+        setProjectButtonsDisabled(true);
+        address = currentProject.address;
+        const asset = currentProject.asset;
+        try {
+            showResult('projectResult', `${escapeHtml(label)}: confirm in your wallet...`, 'info');
+            const tx = await send();
+            showResult('projectResult', `${escapeHtml(label)}: waiting for the transaction...`, 'info');
+            const receipt = await tx.wait();
+            showPaymentResult(label, tx, receipt, asset);
+        } catch (error) {
+            showResult('projectResult', `${escapeHtml(label)} failed: ${escapeHtml(describeError(error))}`, 'error');
+        }
+        await openProject(address, { keepMessage: true });
+        await refreshProjects();
+    } finally {
+        actionInFlight = false;
+        if (address && currentProject && sameAddress(currentProject.address, address)) {
+            renderProject();
+        } else {
+            setProjectButtonsDisabled(false);
+        }
+    }
 }
 
 async function ensureAllowance(p, needed) {
@@ -1529,11 +1636,11 @@ async function onProjectViewClick(event) {
     try {
         if (action === 'editDeposit') {
             const value = MilestoneMath.parseUnits(document.getElementById('editDepositInput').value, p.asset.decimals);
-            await runProjectTx('Save deposit', () => p.contract.editDeposit(value.toString()));
+            await runProjectTx('Save deposit', () => p.contract.editDeposit(value.toString(), p.termsVersion.toString()));
         } else if (action === 'editMilestone') {
             const amount = MilestoneMath.parseUnits(document.querySelector(`[data-edit-amount="${index}"]`).value, p.asset.decimals);
             const reviewWindow = daysToSeconds(document.querySelector(`[data-edit-window="${index}"]`).value);
-            await runProjectTx(`Save milestone ${index + 1}`, () => p.contract.editMilestone(index, amount.toString(), reviewWindow));
+            await runProjectTx(`Save milestone ${index + 1}`, () => p.contract.editMilestone(index, amount.toString(), reviewWindow, p.termsVersion.toString()));
         } else if (action === 'confirmTerms') {
             await runProjectTx('Confirm terms', () => p.contract.confirmTerms(p.termsVersion.toString()));
         } else if (action === 'startLock') {

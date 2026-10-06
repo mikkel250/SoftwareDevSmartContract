@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
 import { Contract, getAddress } from "ethers";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
@@ -83,6 +83,12 @@ async function deployMocks(): Promise<Asset[]> {
 }
 
 async function main() {
+  if (network.name === "hardhat") {
+    throw new Error(
+      "Refusing to deploy on the in-process hardhat network. Those contracts disappear when this process exits. Run: npx hardhat run scripts/deploy.ts --network localhost"
+    );
+  }
+
   const chainId = (await ethers.provider.getNetwork()).chainId;
   let name: Deployment["name"];
   let tokens: Asset[];

@@ -125,7 +125,7 @@ describe("MilestoneProject", function () {
       for (let i = 0; i < 3; i++) {
         expect((await project.getMilestone(i)).amount).to.equal(amounts[i]);
       }
-      await project.connect(client).editMilestone(2, ethers.parseEther("5"), DAY);
+      await project.connect(client).editMilestone(2, ethers.parseEther("5"), DAY, await project.termsVersion());
       expect((await project.getMilestone(2)).amount).to.equal(ethers.parseEther("5"));
     });
 
@@ -144,25 +144,25 @@ describe("MilestoneProject", function () {
 
     it("rejects edits from a third party and out-of-bounds edit values", async function () {
       const { project, client, thirdParty } = await loadFixture(ethProjectFixture);
-      await expect(project.connect(thirdParty).editDeposit(1n)).to.be.revertedWithCustomError(project, "NotParty");
-      await expect(project.connect(thirdParty).editMilestone(1, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(thirdParty).editDeposit(1n, await project.termsVersion())).to.be.revertedWithCustomError(project, "NotParty");
+      await expect(project.connect(thirdParty).editMilestone(1, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "NotParty"
       );
-      await expect(project.connect(client).editDeposit(0n)).to.be.revertedWithCustomError(project, "InvalidAmount");
-      await expect(project.connect(client).editMilestone(1, 0n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editDeposit(0n, await project.termsVersion())).to.be.revertedWithCustomError(project, "InvalidAmount");
+      await expect(project.connect(client).editMilestone(1, 0n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "InvalidAmount"
       );
-      await expect(project.connect(client).editMilestone(1, 1n, 0n)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(1, 1n, 0n, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "InvalidWindow"
       );
-      await expect(project.connect(client).editMilestone(1, 1n, 366n * DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(1, 1n, 366n * DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "InvalidWindow"
       );
-      await expect(project.connect(client).editMilestone(3, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(3, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "UnknownMilestone"
       );
@@ -171,10 +171,10 @@ describe("MilestoneProject", function () {
     it("emits an event for each edit", async function () {
       const { project, developer, client } = await loadFixture(ethProjectFixture);
       const v = await project.termsVersion();
-      await expect(project.connect(client).editDeposit(7n))
+      await expect(project.connect(client).editDeposit(7n, await project.termsVersion()))
         .to.emit(project, "DepositEdited")
         .withArgs(client.address, 7n, v + 1n);
-      await expect(project.connect(developer).editMilestone(1, 9n, DAY))
+      await expect(project.connect(developer).editMilestone(1, 9n, DAY, await project.termsVersion()))
         .to.emit(project, "MilestoneEdited")
         .withArgs(1n, developer.address, 9n, DAY, v + 2n);
     });
@@ -191,6 +191,8 @@ describe("MilestoneProject", function () {
       expect((await project.getMilestone(0)).status).to.equal(MilestoneStatus.Funded);
       expect(await project.status()).to.equal(ProjectStatus.Active);
       expect(await ethers.provider.getBalance(project.target)).to.equal(amounts[0]);
+      expect(await project.owed(developer.address)).to.equal(0n);
+      await expect(project.connect(developer).withdraw()).to.be.revertedWithCustomError(project, "NothingOwed");
     });
 
     it("reverts if msg.value is one wei short or one wei over", async function () {
@@ -229,29 +231,29 @@ describe("MilestoneProject", function () {
     it("lets either party change an unfunded milestone but not a funded milestone or the deposit", async function () {
       const { project, developer, client } = await loadFixture(startedEthProjectFixture);
 
-      await project.connect(developer).editMilestone(1, ethers.parseEther("2"), 4n * DAY);
+      await project.connect(developer).editMilestone(1, ethers.parseEther("2"), 4n * DAY, await project.termsVersion());
       let m1 = await project.getMilestone(1);
       expect(m1.amount).to.equal(ethers.parseEther("2"));
       expect(m1.reviewWindow).to.equal(4n * DAY);
 
-      await project.connect(client).editMilestone(1, ethers.parseEther("1.5"), 6n * DAY);
+      await project.connect(client).editMilestone(1, ethers.parseEther("1.5"), 6n * DAY, await project.termsVersion());
       m1 = await project.getMilestone(1);
       expect(m1.amount).to.equal(ethers.parseEther("1.5"));
       expect(m1.reviewWindow).to.equal(6n * DAY);
 
-      await expect(project.connect(developer).editMilestone(0, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(developer).editMilestone(0, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongMilestoneStatus"
       );
-      await expect(project.connect(client).editMilestone(0, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(0, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongMilestoneStatus"
       );
-      await expect(project.connect(developer).editDeposit(1n)).to.be.revertedWithCustomError(
+      await expect(project.connect(developer).editDeposit(1n, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
-      await expect(project.connect(client).editDeposit(1n)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editDeposit(1n, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
@@ -263,7 +265,7 @@ describe("MilestoneProject", function () {
     it("reverts a start lock with values the developer changed, and succeeds with the new ones", async function () {
       const { project, developer, client, deposit, amounts, windows } = await loadFixture(ethProjectFixture);
       const newAmount = ethers.parseEther("1.2");
-      await project.connect(developer).editMilestone(0, newAmount, windows[0]);
+      await project.connect(developer).editMilestone(0, newAmount, windows[0], await project.termsVersion());
 
       await expect(
         project.connect(client).startLock(deposit, amounts[0], windows[0], { value: deposit + amounts[0] })
@@ -276,12 +278,12 @@ describe("MilestoneProject", function () {
 
     it("reverts a start lock when the window or deposit differs from what the client expected", async function () {
       const { project, developer, client, deposit, amounts, windows } = await loadFixture(ethProjectFixture);
-      await project.connect(developer).editMilestone(0, amounts[0], windows[0] + 1n);
+      await project.connect(developer).editMilestone(0, amounts[0], windows[0] + 1n, await project.termsVersion());
       await expect(
         project.connect(client).startLock(deposit, amounts[0], windows[0], { value: deposit + amounts[0] })
       ).to.be.revertedWithCustomError(project, "TermsChanged");
 
-      await project.connect(developer).editDeposit(deposit + 1n);
+      await project.connect(developer).editDeposit(deposit + 1n, await project.termsVersion());
       await expect(
         project.connect(client).startLock(deposit, amounts[0], windows[0] + 1n, { value: deposit + amounts[0] })
       ).to.be.revertedWithCustomError(project, "TermsChanged");
@@ -290,7 +292,7 @@ describe("MilestoneProject", function () {
     it("blocks a start lock after a client edit until the developer confirms the current version", async function () {
       const { project, developer, client, amounts, windows } = await loadFixture(ethProjectFixture);
       const lowered = ethers.parseEther("0.1");
-      await project.connect(client).editDeposit(lowered);
+      await project.connect(client).editDeposit(lowered, await project.termsVersion());
       expect(await project.confirmedVersion()).to.be.lessThan(await project.termsVersion());
 
       await expect(
@@ -314,7 +316,7 @@ describe("MilestoneProject", function () {
 
       const lowered = ethers.parseEther("0.4");
       const shorter = DAY;
-      await project.connect(client).editMilestone(1, lowered, shorter);
+      await project.connect(client).editMilestone(1, lowered, shorter, await project.termsVersion());
       await expect(
         project.connect(client).fundMilestone(1, lowered, shorter, { value: lowered })
       ).to.be.revertedWithCustomError(project, "TermsNotConfirmed");
@@ -329,7 +331,7 @@ describe("MilestoneProject", function () {
 
     it("reverts confirm terms with a stale version or from anyone but the developer", async function () {
       const { project, developer, client, thirdParty } = await loadFixture(ethProjectFixture);
-      await project.connect(client).editDeposit(1n);
+      await project.connect(client).editDeposit(1n, await project.termsVersion());
       const version = await project.termsVersion();
 
       await expect(project.connect(developer).confirmTerms(version - 1n)).to.be.revertedWithCustomError(
@@ -348,10 +350,54 @@ describe("MilestoneProject", function () {
 
     it("treats a developer edit as confirmed without a separate call", async function () {
       const { project, developer } = await loadFixture(ethProjectFixture);
-      await project.connect(developer).editDeposit(123n);
+      await project.connect(developer).editDeposit(123n, await project.termsVersion());
       expect(await project.confirmedVersion()).to.equal(await project.termsVersion());
-      await project.connect(developer).editMilestone(2, 5n, DAY);
+      await project.connect(developer).editMilestone(2, 5n, DAY, await project.termsVersion());
       expect(await project.confirmedVersion()).to.equal(await project.termsVersion());
+    });
+
+    it("does not confirm a client cut when the developer edits a different field", async function () {
+      const { project, developer, client, amounts, windows } = await loadFixture(ethProjectFixture);
+      const seen = await project.termsVersion();
+      await project.connect(client).editDeposit(1n, seen);
+
+      await project.connect(developer).editMilestone(1, amounts[1], windows[1], await project.termsVersion());
+      expect(await project.confirmedVersion()).to.equal(seen);
+      expect(await project.deposit()).to.equal(1n);
+
+      await expect(
+        project.connect(client).startLock(1n, amounts[0], windows[0], { value: 1n + amounts[0] })
+      ).to.be.revertedWithCustomError(project, "TermsNotConfirmed");
+    });
+
+    it("reverts an edit signed against a version the client already replaced", async function () {
+      const { project, developer, client } = await loadFixture(ethProjectFixture);
+      const seen = await project.termsVersion();
+      await project.connect(client).editDeposit(1n, seen);
+      await expect(project.connect(developer).editMilestone(1, 9n, DAY, seen)).to.be.revertedWithCustomError(
+        project,
+        "StaleVersion"
+      );
+      expect(await project.deposit()).to.equal(1n);
+      expect((await project.getMilestone(1)).amount).to.equal(ethers.parseEther("1"));
+      expect(await project.confirmedVersion()).to.equal(seen);
+    });
+
+    it("does not let the client fund a cut milestone after the developer edits a different one", async function () {
+      const { project, developer, client, deposit, amounts, windows } = await loadFixture(ethProjectFixture);
+      await project.connect(client).startLock(deposit, amounts[0], windows[0], { value: deposit + amounts[0] });
+      await project.connect(developer).markDelivered(0);
+      await project.connect(client).accept(0);
+
+      const seen = await project.termsVersion();
+      await project.connect(client).editMilestone(1, 1n, windows[1], seen);
+      await project.connect(developer).editMilestone(2, amounts[2], windows[2], await project.termsVersion());
+      expect(await project.confirmedVersion()).to.equal(seen);
+      expect((await project.getMilestone(1)).amount).to.equal(1n);
+
+      await expect(
+        project.connect(client).fundMilestone(1, 1n, windows[1], { value: 1n })
+      ).to.be.revertedWithCustomError(project, "TermsNotConfirmed");
     });
   });
 
@@ -401,6 +447,8 @@ describe("MilestoneProject", function () {
         [amounts[0], -amounts[0]]
       );
       expect((await project.getMilestone(0)).status).to.equal(MilestoneStatus.Paid);
+      expect(await project.owed(developer.address)).to.equal(0n);
+      await expect(project.connect(developer).withdraw()).to.be.revertedWithCustomError(project, "NothingOwed");
 
       await expect(
         project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] })
@@ -417,6 +465,8 @@ describe("MilestoneProject", function () {
         [amounts[0], -amounts[0]]
       );
       expect((await project.getMilestone(0)).status).to.equal(MilestoneStatus.Paid);
+      expect(await project.owed(developer.address)).to.equal(0n);
+      await expect(project.connect(developer).withdraw()).to.be.revertedWithCustomError(project, "NothingOwed");
     });
 
     it("reverts release one second before the review end", async function () {
@@ -457,6 +507,8 @@ describe("MilestoneProject", function () {
       expect(await project.status()).to.equal(ProjectStatus.Stopped);
       expect(await project.deposit()).to.equal(deposit);
       expect(await ethers.provider.getBalance(project.target)).to.equal(0n);
+      expect(await project.owed(client.address)).to.equal(0n);
+      await expect(project.connect(client).withdraw()).to.be.revertedWithCustomError(project, "NothingOwed");
     });
 
     it("returns milestone 2 on a later rejection while the developer keeps the deposit and milestone 1 (AE2)", async function () {
@@ -487,15 +539,15 @@ describe("MilestoneProject", function () {
       await expect(
         project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] })
       ).to.be.revertedWithCustomError(project, "WrongProjectStatus");
-      await expect(project.connect(client).editMilestone(1, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(1, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
-      await expect(project.connect(developer).editMilestone(2, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(developer).editMilestone(2, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
-      await expect(project.connect(developer).editDeposit(1n)).to.be.revertedWithCustomError(
+      await expect(project.connect(developer).editDeposit(1n, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
@@ -570,6 +622,29 @@ describe("MilestoneProject", function () {
       ).to.be.revertedWithCustomError(project, "WrongMilestoneStatus");
     });
 
+    it("rejects funding a milestone again after it is funded, delivered, or paid", async function () {
+      const { project, developer, client, amounts, windows } = await loadFixture(deliveredEthProjectFixture);
+      await project.connect(client).accept(0);
+      await project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] });
+
+      await expect(
+        project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] })
+      ).to.be.revertedWithCustomError(project, "WrongMilestoneStatus");
+      expect(await ethers.provider.getBalance(project.target)).to.equal(amounts[1]);
+
+      await project.connect(developer).markDelivered(1);
+      await expect(
+        project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] })
+      ).to.be.revertedWithCustomError(project, "WrongMilestoneStatus");
+      expect(await ethers.provider.getBalance(project.target)).to.equal(amounts[1]);
+
+      await project.connect(client).accept(1);
+      await expect(
+        project.connect(client).fundMilestone(1, amounts[1], windows[1], { value: amounts[1] })
+      ).to.be.revertedWithCustomError(project, "WrongMilestoneStatus");
+      expect(await ethers.provider.getBalance(project.target)).to.equal(0n);
+    });
+
     it("rejects accept, reject, and release on a milestone that is not delivered", async function () {
       const { project, client, thirdParty } = await loadFixture(startedEthProjectFixture);
       await expect(project.connect(client).accept(0)).to.be.revertedWithCustomError(project, "WrongMilestoneStatus");
@@ -609,11 +684,11 @@ describe("MilestoneProject", function () {
         project,
         "WrongProjectStatus"
       );
-      await expect(project.connect(client).editMilestone(0, 1n, DAY)).to.be.revertedWithCustomError(
+      await expect(project.connect(client).editMilestone(0, 1n, DAY, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );
-      await expect(project.connect(developer).editDeposit(1n)).to.be.revertedWithCustomError(
+      await expect(project.connect(developer).editDeposit(1n, await project.termsVersion())).to.be.revertedWithCustomError(
         project,
         "WrongProjectStatus"
       );

@@ -68,7 +68,8 @@ contract MilestoneProject is ReentrancyGuard {
     uint256 public currentMilestone;
     /// @notice Incremented by every edit to the deposit or a milestone.
     uint256 public termsVersion;
-    /// @notice The latest terms version the developer has seen. Funding requires it to equal termsVersion.
+    /// @notice The latest terms version the developer has confirmed. Funding requires it to equal termsVersion.
+    /// A developer edit confirms only when the terms were already confirmed; a pending client edit stays pending.
     uint256 public confirmedVersion;
 
     Milestone[] private _milestones;
@@ -183,16 +184,25 @@ contract MilestoneProject is ReentrancyGuard {
     // ---------------------------------------------------------------------
 
     /// @notice Change the deposit. Allowed for either party before the start lock.
-    function editDeposit(uint256 newDeposit) external nonReentrant onlyParty {
+    /// @param expectedVersion The terms version the caller reviewed. Reverts if the terms moved on.
+    function editDeposit(uint256 newDeposit, uint256 expectedVersion) external nonReentrant onlyParty {
         if (status != ProjectStatus.Setup) revert WrongProjectStatus();
+        if (expectedVersion != termsVersion) revert StaleVersion();
         if (newDeposit == 0) revert InvalidAmount();
         deposit = newDeposit;
         emit DepositEdited(msg.sender, newDeposit, _bumpTerms());
     }
 
     /// @notice Change an unfunded milestone's amount and review window.
-    function editMilestone(uint256 index, uint256 amount, uint256 reviewWindow) external nonReentrant onlyParty {
+    /// @param expectedVersion The terms version the caller reviewed. Reverts if the terms moved on.
+    function editMilestone(
+        uint256 index,
+        uint256 amount,
+        uint256 reviewWindow,
+        uint256 expectedVersion
+    ) external nonReentrant onlyParty {
         _requireOpen();
+        if (expectedVersion != termsVersion) revert StaleVersion();
         Milestone storage m = _milestone(index);
         if (m.status != MilestoneStatus.Unfunded) revert WrongMilestoneStatus();
         _checkTerms(amount, reviewWindow);
@@ -379,8 +389,11 @@ contract MilestoneProject is ReentrancyGuard {
     }
 
     function _bumpTerms() internal returns (uint256 version) {
+        uint256 previous = termsVersion;
         version = ++termsVersion;
-        if (msg.sender == developer) {
+        // A developer edit confirms that one change only when nothing else was waiting.
+        // A client edit that already moved the version stays unconfirmed until confirmTerms.
+        if (msg.sender == developer && confirmedVersion == previous) {
             confirmedVersion = version;
         }
     }

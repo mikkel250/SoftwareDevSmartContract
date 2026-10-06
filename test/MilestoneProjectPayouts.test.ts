@@ -69,6 +69,30 @@ describe("MilestoneProject payouts", function () {
       expect(await ethers.provider.getBalance(project.target)).to.equal(amount);
     });
 
+    it("keeps the deposit credit when a later milestone push also fails", async function () {
+      const { client, devReceiver } = await loadFixture(receiversFixture);
+      await devReceiver.setMode(ReceiverMode.Reject);
+      const project = await deployProject(await devReceiver.getAddress(), client.address, ethers.ZeroAddress, deposit, [
+        amount,
+      ]);
+      await project.connect(client).startLock(deposit, amount, 2n * DAY, { value: deposit + amount });
+      await via(devReceiver, project, "markDelivered", [0]);
+      await expect(project.connect(client).accept(0))
+        .to.emit(project, "PaymentCredited")
+        .withArgs(devReceiver.target, amount);
+
+      expect(await project.owed(devReceiver.target)).to.equal(deposit + amount);
+      expect(await ethers.provider.getBalance(project.target)).to.equal(deposit + amount);
+      expect((await project.getMilestone(0)).status).to.equal(MilestoneStatus.Paid);
+
+      await devReceiver.setMode(ReceiverMode.Accept);
+      await expect(via(devReceiver, project, "withdraw", [])).to.changeEtherBalances(
+        [devReceiver, project],
+        [deposit + amount, -(deposit + amount)]
+      );
+      expect(await project.owed(devReceiver.target)).to.equal(0n);
+    });
+
     it("stops the project and credits a client that rejects the refund", async function () {
       const { deployer, clientReceiver } = await loadFixture(receiversFixture);
       const project = await deployProject(deployer.address, await clientReceiver.getAddress(), ethers.ZeroAddress, deposit, [
